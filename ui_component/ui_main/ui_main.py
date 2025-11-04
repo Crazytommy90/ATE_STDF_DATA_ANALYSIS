@@ -33,6 +33,7 @@ from common.app_variable import GlobalVariable
 from ui_component.ui_common.my_text_browser import UiMessage, MQTextBrowser
 from ui_component.ui_common.ui_utils import MdiLoad
 from ui_component.ui_main.mdi_data_concat import ContactWidget
+from ui_component.ui_main.mdi_data_merge import MergeWidget
 from ui_component.ui_main.ui_designer.ui_main import Ui_MainWindow
 from ui_component.ui_main.ui_jmp_select import JmpSelect
 from ui_component.ui_main.ui_setting import SettingWidget
@@ -109,6 +110,10 @@ class Main_Ui(QMainWindow, Ui_MainWindow):
         self.mdi_contact_dialog = ContactWidget(None, self.icon)
         self.mdi_contact_dialog.messageSignal.connect(self.mdi_space_message_emit)
         self.mdi_contact_dialog.dataSignal.connect(self.mdi_space_data_contact)
+
+        self.mdi_merge_dialog = MergeWidget(None, self.icon)
+        self.mdi_merge_dialog.messageSignal.connect(self.mdi_space_message_emit)
+        self.mdi_merge_dialog.dataSignal.connect(self.mdi_space_data_contact)
 
         self.recode_timer = QTimer(self)
         self.recode_timer.timeout.connect(self.recode_system_status)
@@ -606,7 +611,7 @@ class Main_Ui(QMainWindow, Ui_MainWindow):
         """ 根据弹出的选择界面, 用来将多个mdi的数据contact在一起 """
         self.mdi_count += 1
         merge_mdi = StdfLoadUi(self, space_nm=self.mdi_count, select=False)
-        merge_mdi.dock_file_load.hide()
+        merge_mdi.dock_stdf_load.hide()
         self.mdi_cache[self.mdi_count] = MdiLoad(
             self.mdi_count, merge_mdi, "STDF数据载入空间: {}".format(self.mdi_count)
         )
@@ -615,6 +620,16 @@ class Main_Ui(QMainWindow, Ui_MainWindow):
         merge_mdi.tree_load_widget.set_tree()
         self.load_widget_mdi.addSubWindow(merge_mdi)
         merge_mdi.show()
+
+    @Slot()
+    def on_action_merge_triggered(self):
+        """
+        用于数据merge, 基于选定的参考MDI的limit进行数据合并
+        """
+        if not self.mdi_cache:
+            return self.mdi_space_message_emit("无法进行Merge, 无任何可Merge窗口")
+        self.mdi_merge_dialog.insert(self.mdi_cache)
+        self.mdi_merge_dialog.show()
 
     @Slot(str)
     def mdi_space_message_emit(self, message: str):
