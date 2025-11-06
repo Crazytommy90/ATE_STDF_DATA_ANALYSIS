@@ -58,7 +58,8 @@ class RunStdfAnalysis(QThread):
 
             _, file_name = os.path.split(each["FILE_PATH"])
             stdf_name = file_name[:file_name.rfind('.')]
-            save_path = os.path.join(GlobalVariable.CACHE_PATH, each["LOT_ID"])
+            lot_id = each["LOT_ID"].rstrip('.- ')  # 移除末尾的点、减号、空格，避免Windows文件系统错误
+            save_path = os.path.join(GlobalVariable.CACHE_PATH, lot_id)
 
             if not os.path.exists(save_path):
                 os.mkdir(save_path)
