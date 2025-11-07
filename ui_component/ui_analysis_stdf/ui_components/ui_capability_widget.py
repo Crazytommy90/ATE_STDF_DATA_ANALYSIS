@@ -20,6 +20,7 @@ from PySide2.QtCore import Qt
 from common.li import Li
 from common.app_variable import DataModule
 from common.capability_report_generator import CapabilityReportGenerator
+from common.cal_interface.capability import CapabilityUtils
 
 
 class CapabilityWidget(QWidget):
@@ -111,25 +112,36 @@ class CapabilityWidget(QWidget):
     def generate_individual_reports(self):
         """生成单文件报告"""
         try:
-            if self.li.select_summary is None or len(self.li.select_summary) == 0:
+            # 检查是否有id_module_dict
+            if self.li.id_module_dict is None or len(self.li.id_module_dict) == 0:
                 return
             
-            summary_df = self.li.select_summary
-            
-            # 检查是否有ID列
-            if 'ID' not in self.li.df_module.prr_df.columns:
-                return
-            
-            # 按ID遍历每个文件
-            for idx, row in summary_df.iterrows():
-                file_id = row.get('ID', idx)
-                file_name = os.path.basename(row.get('FILE_PATH', f"File_{file_id}"))
+            # 按ID遍历每个文件的DataModule
+            for file_id, data_module in self.li.id_module_dict.items():
+                # 获取文件名
+                file_row = self.li.select_summary[self.li.select_summary['ID'] == file_id]
+                if len(file_row) == 0:
+                    continue
                 
-                # 筛选该文件的capability数据
-                file_capability_list = [
-                    item for item in self.li.capability_key_list
-                    if item.get('TEST_ID') in self.li.df_module.ptmd_df.index
-                ]
+                file_path = file_row.iloc[0].get('FILE_PATH', f"File_{file_id}")
+                file_name = os.path.basename(file_path)
+                
+                # 创建data_module的副本并设置正确的索引
+                file_data_module = DataModule(
+                    prr_df=data_module.prr_df.copy(),
+                    dtp_df=data_module.dtp_df.copy(),
+                    ptmd_df=data_module.ptmd_df.copy()
+                )
+                
+                # 设置索引（与Li.set_data中的逻辑一致）
+                if 'DIE_ID' in file_data_module.prr_df.columns:
+                    file_data_module.prr_df.set_index(["DIE_ID"], inplace=True)
+                if 'TEST_ID' in file_data_module.dtp_df.columns and 'DIE_ID' in file_data_module.dtp_df.columns:
+                    file_data_module.dtp_df.set_index(["TEST_ID", "DIE_ID"], inplace=True)
+                
+                # 计算该文件的制程能力
+                file_top_fail_dict = CapabilityUtils.calculation_top_fail(file_data_module)
+                file_capability_list = CapabilityUtils.calculation_capability(file_data_module, file_top_fail_dict)
                 
                 # 筛选有效的测项
                 valid_items = CapabilityReportGenerator.filter_valid_items(file_capability_list)
