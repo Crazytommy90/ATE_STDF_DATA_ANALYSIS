@@ -287,7 +287,13 @@ class FileLoadWidget(QWidget, FileLoadForm):
         if self.tableWidget.table_count == 0:
             return Print.warning("无文件结构被读取")
         self.tableWidget.update_temp_data()
-        self.th.set_analysis_list(self.tableWidget.temp_table_data)
+        
+        # 只选择勾选了R_FAIL的文件进行解析
+        selected_files = self.tableWidget.get_selected_files_for_analysis()
+        if not selected_files:
+            return Print.warning("请至少勾选一个R_FAIL文件进行解析")
+        
+        self.th.set_analysis_list(selected_files)
         self.th.start()
         self.pushButton.setEnabled(False)
 

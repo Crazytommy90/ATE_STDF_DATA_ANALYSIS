@@ -468,6 +468,23 @@ class QtTableWidget(BaseTableWidget):
         for row in range(self.table_count):
             self.item(row, 0).setCheckState(status)
 
+    def get_selected_files_for_analysis(self) -> List[dict]:
+        """
+        获取勾选了R_FAIL的文件列表用于解析
+        :return: 勾选的文件数据列表
+        """
+        if self.temp_table_data is None:
+            return []
+        
+        selected_files = []
+        r_set = self.get_retest_row()
+        
+        for index, each in enumerate(self.temp_table_data):
+            if index in r_set:
+                selected_files.append(each)
+        
+        return selected_files
+
     def update_temp_data(self):
         self.update_temp_part_data()
         self.update_temp_r_data()

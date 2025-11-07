@@ -50,6 +50,12 @@ class TableLoadWidget(QWidget, TableLoadForm):
         self.horizontalLayout.addWidget(self.gw)
         self.init_plot()
         self.init_table_signal()
+        
+        # 添加清空按钮
+        from PySide2.QtWidgets import QPushButton
+        self.btn_clear_table = QPushButton("清空")
+        self.btn_clear_table.clicked.connect(self.clear_table_data)
+        self.horizontalLayout_2.insertWidget(3, self.btn_clear_table)
 
     def init_plot(self):
         self.gw.setMaximumWidth(20)
@@ -277,6 +283,16 @@ class TableLoadWidget(QWidget, TableLoadForm):
             return 2
         else:
             return 0
+
+    def clear_table_data(self):
+        """
+        清空表格数据
+        """
+        self.cpk_info_table.clear()
+        self.plot.clear()
+        self.enable_buttons(False)
+        from ui_component.ui_common.my_text_browser import Print
+        Print.info("已清空Data TEST NO&ITEM Analysis表格")
 
     def enable_buttons(self, enabled: bool):
         """

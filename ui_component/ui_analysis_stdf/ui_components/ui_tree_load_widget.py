@@ -70,6 +70,12 @@ class TreeLoadWidget(QWidget, TreeLoadForm):
         self.th.finished.connect(self.li.update)
         self.progressBar.setMaximum(6)
         self.pushButton_2.setEnabled(True)
+        
+        # 添加清空按钮
+        from PySide2.QtWidgets import QPushButton
+        self.btn_clear_tree = QPushButton("清空")
+        self.btn_clear_tree.clicked.connect(self.clear_tree_data)
+        self.horizontalLayout.insertWidget(2, self.btn_clear_tree)
 
     @Slot(QTreeWidgetItem)
     def on_treeWidget_itemChanged(self, e: QTreeWidgetItem):
@@ -110,6 +116,14 @@ class TreeLoadWidget(QWidget, TreeLoadForm):
         self.summary.add_custom_node(ids, remark)
         TreeUtils.set_data_to_tree(self.treeWidget, self.summary.get_summary_tree(), True)
         self.treeWidget.expandAll()
+
+    def clear_tree_data(self):
+        """
+        清空Tree中已载入的STDF数据显示
+        """
+        self.treeWidget.clear()
+        self.progressBar.setValue(0)
+        Print.info("已清空Data Tree显示")
 
     def set_tree(self):
         if not self.summary.ready:
