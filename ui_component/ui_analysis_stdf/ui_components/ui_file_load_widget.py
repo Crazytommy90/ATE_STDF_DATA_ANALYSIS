@@ -254,7 +254,7 @@ class FileLoadWidget(QWidget, FileLoadForm):
     def th_message_event(self, info: dict):
         index = info['index']
         self.progressBar.setValue(index)
-        if index == self.tableWidget.table_count:
+        if index == self.progressBar.maximum():
             return Print.info("{} > 完成数据解析!".format(self.title))
         # self.tableWidget.selectRow(index)
         item = QTableWidgetItem(info['message'])
@@ -292,6 +292,10 @@ class FileLoadWidget(QWidget, FileLoadForm):
         selected_files = self.tableWidget.get_selected_files_for_analysis()
         if not selected_files:
             return Print.warning("请至少勾选一个R_FAIL文件进行解析")
+        
+        # 设置进度条最大值为实际要解析的文件数
+        self.progressBar.setMaximum(len(selected_files))
+        self.progressBar.setValue(0)
         
         self.th.set_analysis_list(selected_files)
         self.th.start()
