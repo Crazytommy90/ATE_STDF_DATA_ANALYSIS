@@ -86,15 +86,15 @@ class SummaryGenerator:
             # 获取Bin名称
             bin_name = bin_name_dict.get(bin_num_int, "") if bin_name_dict else ""
 
-            # 按Site统计
+            # 按Site统计 - 只统计有该bin数据的site
             site_stats = {}
-            if 'SITE_NUM' in prr_df.columns:
-                for site_num in prr_df['SITE_NUM'].unique():
-                    # 确保 site_num 是整数类型
-                    try:
+            if 'SITE_NUM' in group.columns:
+                for site_num in group['SITE_NUM'].unique():
+                    # 提取site编号（处理'S001'或数字格式）
+                    if isinstance(site_num, str) and site_num.startswith('S'):
+                        site_num_int = int(site_num[1:])
+                    else:
                         site_num_int = int(site_num)
-                    except (ValueError, TypeError):
-                        site_num_int = site_num
 
                     site_bin_df = group[group['SITE_NUM'] == site_num]
                     site_total = len(prr_df[prr_df['SITE_NUM'] == site_num])
@@ -150,19 +150,21 @@ class SummaryGenerator:
                 site_pass = len(group[group['FAIL_FLAG'] == 1])
                 site_fail = site_total - site_pass
 
-                # 确保 site_num 是整数类型
-                try:
+                # 提取site编号（处理'S001'或数字格式）
+                if isinstance(site_num, str) and site_num.startswith('S'):
+                    site_num_int = int(site_num[1:])
+                else:
                     site_num_int = int(site_num)
-                    site_key = f'{site_num_int}(S{site_num_int:03d})'
-                except (ValueError, TypeError):
-                    site_key = f'{site_num}(S{site_num})'
+                
+                site_key = f'{site_num_int}(S{site_num_int:03d})'
 
                 site_stats[site_key] = {
                     'TOTAL': site_total,
                     'PASS': site_pass,
                     'FAIL': site_fail,
                     'PASS_RATE': (site_pass / site_total * 100) if site_total > 0 else 0,
-                    'FAIL_RATE': (site_fail / site_total * 100) if site_total > 0 else 0
+                    'FAIL_RATE': (site_fail / site_total * 100) if site_total > 0 else 0,
+                    'SITE_NUM_INT': site_num_int  # 保存整数编号用于bin统计匹配
                 }
         
         return site_stats
@@ -319,13 +321,11 @@ class SummaryGenerator:
             # 按site分别统计
             site_bin_stats = bin_stat.get('SITE_STATS', {})
             for site_key in site_headers[1:]:
-                try:
-                    site_num = int(site_key.split('(')[0]) if '(' in site_key else None
-                    if site_num and site_num in site_bin_stats:
-                        bin_line += f"   {site_bin_stats[site_num]['QTY']:>5}|{site_bin_stats[site_num]['PERCENTAGE']:>6.2f}%"
-                    else:
-                        bin_line += f"      0|  0.00%"
-                except (ValueError, TypeError, IndexError):
+                # 使用保存的整数编号进行匹配
+                site_num_int = site_stats[site_key].get('SITE_NUM_INT')
+                if site_num_int and site_num_int in site_bin_stats:
+                    bin_line += f"   {site_bin_stats[site_num_int]['QTY']:>5}|{site_bin_stats[site_num_int]['PERCENTAGE']:>6.2f}%"
+                else:
                     bin_line += f"      0|  0.00%"
             lines.append(bin_line)
         lines.append("")
@@ -344,13 +344,11 @@ class SummaryGenerator:
             # 按site分别统计
             site_bin_stats = bin_stat.get('SITE_STATS', {})
             for site_key in site_headers[1:]:
-                try:
-                    site_num = int(site_key.split('(')[0]) if '(' in site_key else None
-                    if site_num and site_num in site_bin_stats:
-                        bin_line += f"   {site_bin_stats[site_num]['QTY']:>5}|{site_bin_stats[site_num]['PERCENTAGE']:>6.2f}%"
-                    else:
-                        bin_line += f"      0|  0.00%"
-                except (ValueError, TypeError, IndexError):
+                # 使用保存的整数编号进行匹配
+                site_num_int = site_stats[site_key].get('SITE_NUM_INT')
+                if site_num_int and site_num_int in site_bin_stats:
+                    bin_line += f"   {site_bin_stats[site_num_int]['QTY']:>5}|{site_bin_stats[site_num_int]['PERCENTAGE']:>6.2f}%"
+                else:
                     bin_line += f"      0|  0.00%"
             lines.append(bin_line)
         lines.append("")

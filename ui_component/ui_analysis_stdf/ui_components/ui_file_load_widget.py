@@ -49,53 +49,46 @@ class RunStdfAnalysis(QThread):
             return
         self.by_analysis_list = []
         for index, each in enumerate(self.file_list):
-            # try:
-            """ 阻止不同的程序一起解析 """
-            # if self.cache_pro is not None and self.cache_pro != each['JOB_NAM']:
-            #     self.indexSignal.emit({"index": index, "status": -1, "message": "异同的测试程序!暂无法解析不同程序数据!"})
-            #     continue
-            start = time.perf_counter()
+            try:
+                start = time.perf_counter()
 
-            _, file_name = os.path.split(each["FILE_PATH"])
-            stdf_name = file_name[:file_name.rfind('.')]
-            lot_id = each["LOT_ID"].rstrip('.- ')  # 移除末尾的点、减号、空格，避免Windows文件系统错误
-            save_path = os.path.join(GlobalVariable.CACHE_PATH, lot_id)
+                _, file_name = os.path.split(each["FILE_PATH"])
+                stdf_name = file_name[:file_name.rfind('.')]
+                lot_id = each["LOT_ID"].rstrip('.- ')
+                save_path = os.path.join(GlobalVariable.CACHE_PATH, lot_id)
 
-            if not os.path.exists(save_path):
-                os.mkdir(save_path)
-            save_name = os.path.join(save_path, stdf_name + '.h5')
-            if not os.path.exists(save_name):
-                self.eventSignal.emit({"index": index, "status": 0, "message": "开始解析STDF中!"})
-                ParserData.delete_temp_file()
-                boolean = self.stdf.parser_stdf_to_csv(each["FILE_PATH"])
-                if not boolean:
-                    self.eventSignal.emit({"index": index, "status": -1, "message": "STDF文件解析失败!"})
-                    continue
-                df_module = ParserData.load_csv()
-                ParserData.save_hdf5(df_module, save_name)
-            else:
-                self.eventSignal.emit({"index": index, "status": 0, "message": "缓存文件存在,调用缓存数据!"})
+                if not os.path.exists(save_path):
+                    os.mkdir(save_path)
+                save_name = os.path.join(save_path, stdf_name + '.h5')
+                if not os.path.exists(save_name):
+                    self.eventSignal.emit({"index": index, "status": 0, "message": "开始解析STDF中!"})
+                    ParserData.delete_temp_file()
+                    boolean = self.stdf.parser_stdf_to_csv(each["FILE_PATH"])
+                    if not boolean:
+                        self.eventSignal.emit({"index": index, "status": -1, "message": "STDF文件解析失败!"})
+                        continue
+                    df_module = ParserData.load_csv()
+                    ParserData.save_hdf5(df_module, save_name)
+                else:
+                    self.eventSignal.emit({"index": index, "status": 0, "message": "缓存文件存在,调用缓存数据!"})
 
-            """
-            开始读取prr然后进行数据处理!
-            """
-            prr = ParserData.load_prr_df(save_name)
-            mdi_id = int(self.id + index)
-            by_analysis_data_dict = {
-                **SemiStdfUtils.get_lot_info_by_semi_ate(each["FILE_PATH"], FILE_NAME=file_name, ID=mdi_id),
-                **ParserData.get_yield(prr, each["PART_FLAG"], each["READ_FAIL"]),
-                "PART_FLAG": str(each["PART_FLAG"]),
-                "READ_FAIL": str("1" if each["READ_FAIL"] else 0),
-                "HDF5_PATH": save_name,
-            }
-            """ 阻止不同的程序一起解析 """
-            # if self.cache_pro is None:
-            #     self.cache_pro = by_analysis_data_dict['JOB_NAM']
-            use_time = round(time.perf_counter() - start, 2)
-            self.by_analysis_list.append(by_analysis_data_dict)
-            self.eventSignal.emit(
-                {"index": index, "status": 1, "message": "STDF解析文件成功!用时{}s".format(use_time)}
-            )
+                prr = ParserData.load_prr_df(save_name)
+                mdi_id = int(self.id + index)
+                by_analysis_data_dict = {
+                    **SemiStdfUtils.get_lot_info_by_semi_ate(each["FILE_PATH"], FILE_NAME=file_name, ID=mdi_id),
+                    **ParserData.get_yield(prr, each["PART_FLAG"], each["READ_FAIL"]),
+                    "PART_FLAG": str(each["PART_FLAG"]),
+                    "READ_FAIL": str("1" if each["READ_FAIL"] else 0),
+                    "HDF5_PATH": save_name,
+                }
+                use_time = round(time.perf_counter() - start, 2)
+                self.by_analysis_list.append(by_analysis_data_dict)
+                self.eventSignal.emit(
+                    {"index": index, "status": 1, "message": "STDF解析文件成功!用时{}s".format(use_time)}
+                )
+            except Exception as e:
+                self.eventSignal.emit({"index": index, "status": -1, "message": f"解析异常: {str(e)}"})
+                continue
         """数据整理OK"""
         self.eventSignal.emit({"index": len(self.file_list), "status": 11, "message": "数据解析完成"})
 

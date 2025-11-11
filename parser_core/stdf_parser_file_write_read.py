@@ -47,6 +47,7 @@ class ParserData:
             new_ptmd_list = []
             # ========================= TODO: only for 93k
             cache_test_ptmd = dict()
+            test_num_counter = dict()  # 记录每个TEST_NUM出现的次数
             ptmd_df_dict_list = ptmd_df.to_dict(orient='records')
             for each in ptmd_df_dict_list:
                 temp_split_text = each["TEST_TXT"].split("@", 1)
@@ -68,6 +69,16 @@ class ParserData:
                     each["LO_LIMIT"] = temp_each["LO_LIMIT"]
                     each["HI_LIMIT"] = temp_each["HI_LIMIT"]
                     each["UNITS"] = temp_each["UNITS"]
+                
+                # 处理重复TEST_NUM：添加后缀_0, _1, _2...
+                test_num = each["TEST_NUM"]
+                if test_num in test_num_counter:
+                    test_num_counter[test_num] += 1
+                    each["TEST_NUM"] = f"{test_num}_{test_num_counter[test_num]}"
+                else:
+                    test_num_counter[test_num] = 0
+                    each["TEST_NUM"] = f"{test_num}_0"
+                
                 new_ptmd_list.append(each)
             ptmd_df = pd.DataFrame(new_ptmd_list)
             # ==================================================
