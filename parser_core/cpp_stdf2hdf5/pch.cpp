@@ -48,9 +48,9 @@ bool Cplus_stdf::ParserStdfToHdf5(const wchar_t* filename)
 
 	delete stdf_file;
 	stdf_file = nullptr;
-	if (ret != 0)
+	if (ret == 0)
 	{
-		return false;
+		return true;
 	}
-	return true;
+	return false;
 }

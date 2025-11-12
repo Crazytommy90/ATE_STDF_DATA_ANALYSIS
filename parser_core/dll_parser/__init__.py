@@ -60,9 +60,35 @@ class LinkStdf:
         del self.std_dll
 
     def parser_stdf_to_csv(self, stdf_file: str):
-        resp = self._parser_stdf_to_csv(self.stdf, self.string_to_wchar(stdf_file))
-        self.import_status = True if resp else False
-        return resp
+        try:
+            if not os.path.exists(stdf_file):
+                print(f"错误: STDF文件不存在: {stdf_file}")
+                self.import_status = False
+                return False
+            
+            file_size = os.path.getsize(stdf_file)
+            if file_size == 0:
+                print(f"错误: STDF文件为空: {stdf_file}")
+                self.import_status = False
+                return False
+            
+            print(f"开始解析STDF: {stdf_file} ({file_size} bytes)")
+            resp = self._parser_stdf_to_csv(self.stdf, self.string_to_wchar(stdf_file))
+            self.import_status = True if resp else False
+            if not resp:
+                print(f"警告: STDF解析返回False,可能存在格式问题")
+            return resp
+        except OSError as e:
+            error_code = e.winerror if hasattr(e, 'winerror') else 'Unknown'
+            print(f"DLL调用异常 (错误码: {error_code})")
+            print(f"文件: {stdf_file}")
+            self.import_status = False
+            return False
+        except Exception as e:
+            print(f"解析错误: {type(e).__name__}: {e}")
+            print(f"文件: {stdf_file}")
+            self.import_status = False
+            return False
 
     def get_finish_t(self):
         if not self.import_status:

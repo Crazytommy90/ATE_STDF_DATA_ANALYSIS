@@ -83,7 +83,7 @@ class Ui_Form(object):
 
     def retranslateUi(self, Form):
         Form.setWindowTitle(QCoreApplication.translate("Form", u"Form", None))
-        self.pushButton.setText(QCoreApplication.translate("Form", u"\u6570\u636e\u8f7d\u5165", None))
+        self.pushButton.setText(QCoreApplication.translate("Form", u"P&F\u6570\u636e\u8f7d\u5165", None))
         self.pushButton_2.setText(QCoreApplication.translate("Form", u"\u6570\u636e\u5408\u5e76(\u591a\u4efd\u6570\u636e\u7ec4\u5408\u4e3a\u81ea\u5b9a\u4e49lot)", None))
         self.checkBox.setText(QCoreApplication.translate("Form", u"\u62bd\u6837\u52a0\u901f", None))
         self.spinBox.setSuffix(QCoreApplication.translate("Form", u"qty", None))

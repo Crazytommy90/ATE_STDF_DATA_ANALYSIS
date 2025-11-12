@@ -1,4 +1,4 @@
-// dllmain.cpp : 定义 DLL 应用程序的入口点。
+// dllmain.cpp : ???? DLL ????????????
 #include "pch.h"
 
 BOOL APIENTRY DllMain(HMODULE hModule,
@@ -17,8 +17,18 @@ BOOL APIENTRY DllMain(HMODULE hModule,
     return TRUE;
 }
 
-// 临时使用CSV, 后续使用pybind11_numpy(easy) / hdf5
-extern "C"  _declspec(dllexport) Cplus_stdf * NewStdf() { return new Cplus_stdf(); }; // 新类
-extern "C"  _declspec(dllexport) void DeleteStdf(Cplus_stdf * stdf) { stdf->Clear(); delete stdf; stdf = nullptr; }; // 删除类
-extern "C"  _declspec(dllexport) bool ParserStdfToHdf5(Cplus_stdf * stdf, wchar_t* filename) { return stdf->ParserStdfToHdf5(filename); };
+// ??????CSV, ???????pybind11_numpy(easy) / hdf5
+extern "C"  _declspec(dllexport) Cplus_stdf * NewStdf() { return new Cplus_stdf(); };
+extern "C"  _declspec(dllexport) void DeleteStdf(Cplus_stdf * stdf) { stdf->Clear(); delete stdf; stdf = nullptr; };
+extern "C"  _declspec(dllexport) bool ParserStdfToHdf5(Cplus_stdf * stdf, wchar_t* filename) {
+    try {
+        return stdf->ParserStdfToHdf5(filename);
+    } catch (const std::exception& e) {
+        std::cerr << "C++ Exception: " << e.what() << std::endl;
+        return false;
+    } catch (...) {
+        std::cerr << "Unknown C++ Exception" << std::endl;
+        return false;
+    }
+};
 extern "C"  _declspec(dllexport) int GetFinishT(Cplus_stdf * stdf) { return stdf->GetFinishT(); };

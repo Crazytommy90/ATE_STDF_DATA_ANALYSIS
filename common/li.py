@@ -239,6 +239,36 @@ class Li(QObject):
         self.df_module.prr_df.set_index(["DIE_ID"], inplace=True)
         self.df_module.dtp_df.set_index(["TEST_ID", "DIE_ID"], inplace=True)
         self.df_module.prr_df["DA_GROUP"] = "*"
+    
+    def filter_by_test_type(self, test_types: List[str]):
+        """
+        按测试类型过滤数据
+        :param test_types: 测试类型列表，如 ['PTR', 'MPR'] 或 ['FTR']
+        """
+        if self.df_module is None or self.df_module.ptmd_df is None:
+            return
+        
+        from common.app_variable import DatatType
+        
+        # 过滤ptmd_df
+        self.df_module.ptmd_df = self.df_module.ptmd_df[
+            self.df_module.ptmd_df['DATAT_TYPE'].isin(test_types)
+        ]
+        
+        # 获取过滤后的TEST_ID列表
+        filtered_test_ids = self.df_module.ptmd_df['TEST_ID'].unique()
+        
+        # 过滤dtp_df - 检查是否已设置索引
+        if isinstance(self.df_module.dtp_df.index, pd.MultiIndex):
+            # 已设置多级索引
+            self.df_module.dtp_df = self.df_module.dtp_df[
+                self.df_module.dtp_df.index.get_level_values('TEST_ID').isin(filtered_test_ids)
+            ]
+        else:
+            # 未设置索引，使用列过滤
+            self.df_module.dtp_df = self.df_module.dtp_df[
+                self.df_module.dtp_df['TEST_ID'].isin(filtered_test_ids)
+            ]
 
     def calculation_top_fail(self):
         """

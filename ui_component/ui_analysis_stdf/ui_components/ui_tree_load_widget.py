@@ -42,6 +42,16 @@ class QthCalculation(QThread):
         ))
         self.event_send(2)
         self.li.concat()
+        
+        # 根据加载类型过滤数据
+        if hasattr(self.parent(), '_load_type') and self.parent()._load_type:
+            from common.app_variable import DatatType
+            if self.parent()._load_type == 'P':
+                self.li.filter_by_test_type([DatatType.PTR, DatatType.MPR])
+            elif self.parent()._load_type == 'F':
+                self.li.filter_by_test_type([DatatType.FTR])
+            # 'PF' 或 None 不过滤，加载所有数据
+        
         self.event_send(3)
         self.li.calculation_top_fail()
         self.event_send(4)
@@ -71,11 +81,23 @@ class TreeLoadWidget(QWidget, TreeLoadForm):
         self.progressBar.setMaximum(6)
         self.pushButton_2.setEnabled(True)
         
-        # 添加清空按钮
+        # 添加P和F数据载入按钮
         from PySide2.QtWidgets import QPushButton
+        self.btn_load_p = QPushButton("P数据载入")
+        self.btn_load_p.clicked.connect(self.on_load_p_data)
+        self.horizontalLayout.insertWidget(1, self.btn_load_p)
+        
+        self.btn_load_f = QPushButton("F数据载入")
+        self.btn_load_f.clicked.connect(self.on_load_f_data)
+        self.horizontalLayout.insertWidget(2, self.btn_load_f)
+        
+        # 添加清空按钮
         self.btn_clear_tree = QPushButton("清空")
         self.btn_clear_tree.clicked.connect(self.clear_tree_data)
-        self.horizontalLayout.insertWidget(2, self.btn_clear_tree)
+        self.horizontalLayout.insertWidget(4, self.btn_clear_tree)
+        
+        # 用于标记当前加载类型
+        self._load_type = None
 
     @Slot(QTreeWidgetItem)
     def on_treeWidget_itemChanged(self, e: QTreeWidgetItem):
@@ -84,7 +106,30 @@ class TreeLoadWidget(QWidget, TreeLoadForm):
     @Slot()
     def on_pushButton_pressed(self):
         """
-        calculation df
+        P&F数据载入 - 加载所有类型的测试数据
+        """
+        self._load_type = 'PF'
+        self._execute_load()
+    
+    @Slot()
+    def on_load_p_data(self):
+        """
+        P数据载入 - 仅加载Parametric类测试（PTR, MPR）
+        """
+        self._load_type = 'P'
+        self._execute_load()
+    
+    @Slot()
+    def on_load_f_data(self):
+        """
+        F数据载入 - 仅加载Functional类测试（FTR）
+        """
+        self._load_type = 'F'
+        self._execute_load()
+    
+    def _execute_load(self):
+        """
+        执行数据加载的通用逻辑
         """
         if self.th.isRunning():
             return Print.warning("工作线程正在运行中!")

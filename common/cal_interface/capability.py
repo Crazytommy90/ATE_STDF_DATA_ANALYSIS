@@ -327,7 +327,7 @@ class CapabilityUtils:
     @staticmethod
     def calculation_ftr(ptmd: PtmdModule, top_fail_qty: int, data_df: pd.DataFrame) -> Union[Calculation, dict]:
         """
-        只计算fail rate
+        只计算fail rate，但保持与PTR相同的字段结构以避免表格显示错位
         :param top_fail_qty:
         :param ptmd:
         :param data_df:
@@ -335,28 +335,34 @@ class CapabilityUtils:
         """
         reject_qty = len(data_df[data_df.TEST_FLG & DtpTestFlag.TestFailed == DtpTestFlag.TestFailed])
         temp_dict = {
-            "TEST_ID": ptmd.TEST_ID,  # 每个测试项目最后整合后只会有唯一一个TEST_ID
+            "TEST_ID": ptmd.TEST_ID,
             "TEST_TYPE": ptmd.DATAT_TYPE,
             "TEST_NUM": ptmd.TEST_NUM,
             "TEST_TXT": ptmd.TEST_TXT,
             "UNITS": ptmd.UNITS,
-            "LO_LIMIT": ptmd.LO_LIMIT,  # 保持原始limit值，不进行四舍五入
-            "HI_LIMIT": ptmd.HI_LIMIT,  # 保持原始limit值，不进行四舍五入
+            "LO_LIMIT": ptmd.LO_LIMIT,
+            "HI_LIMIT": ptmd.HI_LIMIT,
             "AVG": np.nan,
             "STD": np.nan,
+            "MEDIAN": np.nan,  # 添加MEDIAN字段
+            # 制程能力指标 - FTR不适用，设为NaN
             "CPK": np.nan,
+            "CP": np.nan,  # 添加CP字段
+            "PPK": np.nan,  # 添加PPK字段
+            "PP": np.nan,  # 添加PP字段
+            "SIGMA_LEVEL": np.nan,  # 添加SIGMA_LEVEL字段
+            # 数量统计
             "QTY": len(data_df),
             "FAIL_QTY": top_fail_qty,
-            # TODO: 注意 top fail的Rate一定是要%总颗数,不能%测试颗数, 待更新
             "FAIL_RATE": "{}%".format(round(top_fail_qty / len(data_df) * 100, 3)),
             "REJECT_QTY": reject_qty,
             "REJECT_RATE": "{}%".format(round(reject_qty / len(data_df) * 100, 3)),
-            "MIN": -0.1,  # 注意, 是取得有效区域的数据
-            "MAX": 1.1,  # 注意, 是取得有效区域的数据
+            "MIN": np.nan,  # FTR没有连续值，设为NaN
+            "MAX": np.nan,  # FTR没有连续值，设为NaN
             "LO_LIMIT_TYPE": LimitType.ThenLowLimit,
             "HI_LIMIT_TYPE": LimitType.EqualHighLimit,
-            "ALL_DATA_MIN": -0.1,
-            "ALL_DATA_MAX": 1.1,
+            "ALL_DATA_MIN": np.nan,  # FTR没有连续值，设为NaN
+            "ALL_DATA_MAX": np.nan,  # FTR没有连续值，设为NaN
             "TEXT": ptmd.TEXT,
         }
         # return Calculation(**temp_dict)
