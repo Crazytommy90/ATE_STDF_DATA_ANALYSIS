@@ -124,8 +124,9 @@ class Main_Ui(QMainWindow, Ui_MainWindow):
 
         if not license_control:
             for each in UiGlobalVariable.WEB_ACTIONS:
-                action: QAction = getattr(self, each.name)
-                action.setVisible(False)
+                if hasattr(self, each.name):
+                    action: QAction = getattr(self, each.name)
+                    action.setVisible(False)
 
     def m_append(self, mes: UiMessage):
         self.text_browser.m_append(mes)
@@ -276,16 +277,13 @@ class Main_Ui(QMainWindow, Ui_MainWindow):
             return
         jmp_df, temp_calculation = data
         if self.setting.comboBox.currentText() == UiGlobalVariable.PLOT_BACKEND[0]:
-            if UiGlobalVariable.JmpPlotSeparation:
-                for key, df in jmp_df.groupby("GROUP"):
-                    save_csv_path = "{}/temp_{}.csv".format(GlobalVariable.JMP_CACHE_PATH, key)
-                    self.jmp_distribution_show(df, temp_calculation, title=key, save_csv=save_csv_path)
-            else:
-                save_csv_path = "{}/temp_{}.csv".format(GlobalVariable.JMP_CACHE_PATH, 'all_data')
-                self.jmp_distribution_show(jmp_df, temp_calculation, save_csv=save_csv_path)
+            # 优化：始终将整个DataFrame传递，由JMP脚本处理分组颜色
+            save_csv_path = "{}/temp_{}.csv".format(GlobalVariable.JMP_CACHE_PATH, 'all_data_distribution')
+            show_color_chart = self.message_show("是否显示颜色对比图？")
+            self.jmp_distribution_show(jmp_df, temp_calculation, title="Distribution Chart", save_csv=save_csv_path, show_color_chart=show_color_chart)
 
     def jmp_distribution_show(self, jmp_df, temp_calculation, title: str = "dis_all",
-                              save_csv: str = None):
+                              save_csv: str = None, show_color_chart: bool = True):
         # 如果没有指定save_csv路径，使用默认的JMP缓存路径
         if save_csv is None:
             save_csv = "{}/temp_jmp_data.csv".format(GlobalVariable.JMP_CACHE_PATH)
@@ -293,10 +291,30 @@ class Main_Ui(QMainWindow, Ui_MainWindow):
         csv_file_path = self.save_df_to_csv(jmp_df, save_csv)
         if csv_file_path is None:
             return self.mdi_space_message_emit('CSV数据产生失败!!!@')
+
+        # 检查是否有GROUP或DA_GROUP分组用于颜色叠加
+        by_columns = []
+        if 'GROUP' in jmp_df.columns and jmp_df['GROUP'].nunique() > 1:
+            by_columns.append('GROUP')
+        if 'DA_GROUP' in jmp_df.columns and jmp_df['DA_GROUP'].nunique() > 1:
+            by_columns.append('DA_GROUP')
+
+        overlay_column = None
+        if len(by_columns) > 1:
+            # Create a new combined column for overlaying
+            # Robustly create the OVERLAY_GROUP column
+            # Ensure all columns are string type before joining
+            # Robustly create the OVERLAY_GROUP column
+            # Ensure all columns are string type before joining
+            jmp_df['OVERLAY_GROUP'] = jmp_df[by_columns].apply(lambda x: '_'.join(x.map(str)), axis=1)
+            overlay_column = 'OVERLAY_GROUP'
+        elif by_columns:
+            overlay_column = by_columns[0]
+
         jmp_script = JmpScript.factory(
             JmpFile.load_csv_file(csv_file_path),
             NewJmpFactory.jmp_distribution(
-                capability=temp_calculation, title=title
+                capability=temp_calculation, title=title, by_columns=by_columns, overlay_column=overlay_column, show_color_chart=show_color_chart
             )
         )
         JmpFile.save_with_run_script(
@@ -314,14 +332,31 @@ class Main_Ui(QMainWindow, Ui_MainWindow):
             return
         jmp_df, temp_calculation = data
         if self.setting.comboBox.currentText() == UiGlobalVariable.PLOT_BACKEND[0]:
+            show_color_chart = self.message_show("是否显示颜色对比图？")
             distribution_csv_path = self.save_df_to_csv(
                 jmp_df, "{}/temp_{}.csv".format(GlobalVariable.JMP_CACHE_PATH, script_name)
             )
             if distribution_csv_path is None:
                 return self.message_show('CSV数据产生失败!!! ')
+            # 检查是否有GROUP或DA_GROUP分组用于颜色叠加 (与竖向图逻辑对齐)
+            by_columns = []
+            if 'GROUP' in jmp_df.columns and jmp_df['GROUP'].nunique() > 1:
+                by_columns.append('GROUP')
+            if 'DA_GROUP' in jmp_df.columns and jmp_df['DA_GROUP'].nunique() > 1:
+                by_columns.append('DA_GROUP')
+
+            overlay_column = None
+            if len(by_columns) > 1:
+                jmp_df['OVERLAY_GROUP'] = jmp_df[by_columns].apply(lambda x: '_'.join(x.map(str)), axis=1)
+                overlay_column = 'OVERLAY_GROUP'
+            elif by_columns:
+                overlay_column = by_columns[0]
+
             jmp_script = JmpScript.factory(
                 JmpFile.load_csv_file(distribution_csv_path),
-                NewJmpFactory.jmp_distribution_trans_bar(capability=temp_calculation)
+                NewJmpFactory.jmp_distribution_trans_bar(
+                    capability=temp_calculation, title=script_name, by_columns=by_columns, overlay_column=overlay_column, show_color_chart=show_color_chart
+                )
             )
             JmpFile.save_with_run_script(
                 jmp_script, scrip_name="{}/temp_{}.jsl".format(GlobalVariable.JMP_CACHE_PATH, script_name)
@@ -342,9 +377,10 @@ class Main_Ui(QMainWindow, Ui_MainWindow):
                                                "{}/temp_{}.csv".format(GlobalVariable.JMP_CACHE_PATH, script_name))
             if fit_csv_path is None:
                 return self.message_show(f'CSV数据产生失败!!! ')
+
             jmp_script = JmpScript.factory(
                 JmpFile.load_csv_file(fit_csv_path),
-                JmpFactory.comparing(temp_calculation)
+                JmpFactory.comparing(temp_calculation, jmp_df=jmp_df)
             )
             JmpFile.save_with_run_script(
                 jmp_script, scrip_name='{}/temp_{}.jsl'.format(GlobalVariable.JMP_CACHE_PATH, script_name)
@@ -575,14 +611,41 @@ class Main_Ui(QMainWindow, Ui_MainWindow):
             jmp_fac_string = [JmpFile.load_csv_file(multi_csv_path)]
             bin_head = ""
             for each in item_select:
-                if each == 6:
-                    bin_head = "SOFT_BIN"
-                if each == 7:
-                    bin_head = "HARD_BIN"
-                fac_func = getattr(JmpFactory, JmpFactory.item_dict[each])
-                fac_jsl_script = fac_func(temp_calculation,
-                                          jmp_df=jmp_df,
-                                          bin_head=bin_head)
+                fac_jsl_script = ""
+                if each == 0 or each == 1:  # "测试数据分布图" or "横向分布图"
+                    by_columns = []
+                    if 'GROUP' in jmp_df.columns and jmp_df['GROUP'].nunique() > 1:
+                        by_columns.append('GROUP')
+                    if 'DA_GROUP' in jmp_df.columns and jmp_df['DA_GROUP'].nunique() > 1:
+                        by_columns.append('DA_GROUP')
+
+                    overlay_column = None
+                    if len(by_columns) > 1:
+                        jmp_df['OVERLAY_GROUP'] = jmp_df[by_columns].apply(lambda x: '_'.join(x.map(str)), axis=1)
+                        overlay_column = 'OVERLAY_GROUP'
+                    elif by_columns:
+                        overlay_column = by_columns[0]
+
+                    if each == 0:
+                        fac_jsl_script = NewJmpFactory.jmp_distribution(
+                            capability=temp_calculation, title="Distribution Chart", by_columns=by_columns,
+                            overlay_column=overlay_column
+                        )
+                    else:  # each == 1
+                        fac_jsl_script = NewJmpFactory.jmp_distribution_trans_bar(
+                            capability=temp_calculation, title="Transposed Distribution", by_columns=by_columns,
+                            overlay_column=overlay_column
+                        )
+                else:
+                    if each == 6:
+                        bin_head = "SOFT_BIN"
+                    if each == 7:
+                        bin_head = "HARD_BIN"
+                    fac_func = getattr(JmpFactory, JmpFactory.item_dict[each])
+                    # 确保所有函数调用都传递jmp_df参数
+                    fac_jsl_script = fac_func(temp_calculation,
+                                              jmp_df=jmp_df,
+                                              bin_head=bin_head)
                 jmp_fac_string.append(fac_jsl_script)
             jmp_script = JmpScript.factory(*jmp_fac_string)
             JmpFile.save_with_run_script(

@@ -44,6 +44,8 @@ class ChartDockWindow(QMainWindow, Ui_MainWindow):
     def __init__(self, li: Li, parent=None, icon=None, space_nm=1, summary: SummaryCore = None):
         super(ChartDockWindow, self).__init__(parent)
         self.setupUi(self)
+        self.toolBar.setVisible(False)
+        self.menuBar().setVisible(False)
         self.li = li
         self.summary = summary
         self.parent = parent

@@ -13,7 +13,8 @@ from typing import List
 
 from PySide2 import QtGui
 from PySide2.QtCore import Slot, Qt
-from PySide2.QtWidgets import QMainWindow, QPushButton, QSpinBox, QWidget, QLayout
+from PySide2.QtWidgets import QPushButton, QSpinBox, QWidget, QLayout, QToolBar, QVBoxLayout, QScrollArea, QAction
+from PySide2 import QtGui
 
 from chart_core.chart_pyqtgraph.core.mixin import ChartType
 from chart_core.chart_pyqtgraph.ui_components.chart_trans_bar import TransBarChart
@@ -21,33 +22,69 @@ from chart_core.chart_pyqtgraph.ui_components.chart_trans_scatter import TransSc
 from chart_core.chart_pyqtgraph.ui_components.chart_visual_map import VisualMapChart
 from chart_core.chart_pyqtgraph.ui_components.chart_mapping import MappingChart
 from chart_core.chart_pyqtgraph.ui_components.ui_unit_chart import UnitChartWindow
-from chart_core.chart_pyqtgraph.ui_designer.ui_multi_chart import Ui_MainWindow, QGuiApplication, QCloseEvent
+from chart_core.chart_pyqtgraph.ui_designer.ui_multi_chart import QGuiApplication, QCloseEvent
 from common.li import Li
 from ui_component.ui_app_variable import UiGlobalVariable
 
 
-class MultiChartWindow(QMainWindow, Ui_MainWindow):
+class MultiChartWindow(QWidget):
     temp: list = None
 
     def __init__(self, li: Li, parent=None, icon=None):
         super(MultiChartWindow, self).__init__(parent)
         self.li = li
-        self.setupUi(self)
-        self.setWindowTitle("Multi Chart Window")
-        self.action_signal_binding.setChecked(Qt.Checked)
+
+        # --- Start Manual UI Setup ---
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        self.setLayout(main_layout)
+
+        self.toolBar = QToolBar(self)
+        main_layout.addWidget(self.toolBar)
+
+        self.scrollArea = QScrollArea(self)
+        self.scrollArea.setWidgetResizable(True)
+        main_layout.addWidget(self.scrollArea)
+
+        self.scrollAreaWidgetContents = QWidget()
+        self.scrollArea.setWidget(self.scrollAreaWidgetContents)
+        
+        self.verticalLayout_2 = QVBoxLayout(self.scrollAreaWidgetContents)
+        self.verticalLayout_2.setContentsMargins(0, 0, 0, 0)
+
+        self.widget = QWidget(self.scrollAreaWidgetContents)
+        self.verticalLayout_2.addWidget(self.widget)
+
+        self.verticalLayout_4 = QVBoxLayout(self.widget)
+        self.verticalLayout_4.setContentsMargins(0, 0, 0, 0)
+        
+        self.verticalLayout_3 = QVBoxLayout()
+        self.verticalLayout_4.addLayout(self.verticalLayout_3)
+        # --- End Manual UI Setup ---
+
+        # Actions for toolbar
+        self.action_signal_binding = QAction("signal_binding", self)
+        self.action_signal_binding.setCheckable(True)
+        self.action_signal_binding.setChecked(True)
+        self.action_copy_image = QAction("copy_image", self)
+
+        self.toolBar.addAction(self.action_signal_binding)
+        self.toolBar.addSeparator()
+        self.toolBar.addAction(self.action_copy_image)
+        self.toolBar.addSeparator()
 
         # 添加缩小按钮
         self.pushButton = QPushButton("", self)
         self.pushButton.setShortcut("Ctrl+-")
-        icon = QtGui.QIcon()
-        icon.addPixmap(QtGui.QPixmap(":/pyqt/source/images/lc_zoomout.png"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
-        self.pushButton.setIcon(icon)
+        zoom_out_icon = QtGui.QIcon()
+        zoom_out_icon.addPixmap(QtGui.QPixmap(":/pyqt/source/images/lc_zoomout.png"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
+        self.pushButton.setIcon(zoom_out_icon)
         # 添加放大按钮
         self.pushButton_2 = QPushButton("", self)
         self.pushButton_2.setShortcut("Ctrl++")
-        icon1 = QtGui.QIcon()
-        icon1.addPixmap(QtGui.QPixmap(":/pyqt/source/images/lc_zoomin.png"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
-        self.pushButton_2.setIcon(icon1)
+        zoom_in_icon = QtGui.QIcon()
+        zoom_in_icon.addPixmap(QtGui.QPixmap(":/pyqt/source/images/lc_zoomin.png"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
+        self.pushButton_2.setIcon(zoom_in_icon)
 
         # 添加Width SpinBox
         self.unit_chart_width = QSpinBox(self)
@@ -66,7 +103,7 @@ class MultiChartWindow(QMainWindow, Ui_MainWindow):
         self.unit_chart_width.setValue(UiGlobalVariable.GraphPlotWidth)
         self.unit_chart_height.setValue(UiGlobalVariable.GraphPlotHeight)
 
-        # 添加到状态栏
+        # 添加到工具栏
         self.toolBar.addWidget(self.unit_chart_width)
         self.toolBar.addSeparator()
         self.toolBar.addWidget(self.unit_chart_height)
@@ -76,10 +113,13 @@ class MultiChartWindow(QMainWindow, Ui_MainWindow):
         self.toolBar.addWidget(self.pushButton_2)
         self.toolBar.addSeparator()
 
+        # Connect signals
         self.pushButton.pressed.connect(self._on_pushButton_pressed)
         self.pushButton_2.pressed.connect(self._on_pushButton_2_pressed)
         self.unit_chart_width.valueChanged.connect(self.resize_update)
         self.unit_chart_height.valueChanged.connect(self.resize_update)
+        self.action_signal_binding.triggered.connect(self.on_action_signal_binding_triggered)
+        self.action_copy_image.triggered.connect(self.on_action_copy_image_triggered)
 
     def set_width_height(self):
         self.unit_chart_width.setValue(UiGlobalVariable.GraphPlotWidth)
@@ -167,7 +207,7 @@ class MultiChartWindow(QMainWindow, Ui_MainWindow):
                 plot = visual_map_chart
             if chart_type == ChartType.Mapping:
                 mapping_chart = MappingChart(self.li)
-                mapping_chart.set_data(test_id)
+                mapping_chart.set_data()
                 self.verticalLayout_3.addWidget(mapping_chart)
                 plot = mapping_chart
 
@@ -192,7 +232,8 @@ class MultiChartWindow(QMainWindow, Ui_MainWindow):
         :param message:
         :return:
         """
-        self.statusbar.showMessage("==={}==={}===".format(dt.datetime.now().strftime("%H:%M:%S"), message))
+        # QWidget has no statusbar, this should be handled by the parent if needed
+        print(f"Status message: {message}")
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self.clear()

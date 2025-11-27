@@ -223,7 +223,16 @@ class SummaryGenerator:
         :return: 格式化的Summary文本
         """
         lines = []
-        
+
+        # 筛选出每个Die的最后一次测试结果用于良率和Bin统计
+        prr_df_full = df_module.prr_df
+        final_test_prr_df = prr_df_full
+        if prr_df_full is not None and 'X_COORD' in prr_df_full.columns and 'Y_COORD' in prr_df_full.columns:
+            # 按照PART_ID排序，确保drop_duplicates保留的是时间上最后的记录
+            final_test_prr_df = prr_df_full.sort_values(by='PART_ID').drop_duplicates(
+                subset=['X_COORD', 'Y_COORD'], keep='last'
+            )
+
         # ==================== Basic Info ====================
         lines.append("Basic Info")
         lines.append(f"File Path:      {file_info.get('FILE_PATH', '--------')}")
@@ -248,9 +257,11 @@ class SummaryGenerator:
         lines.append("")
         
         # ==================== Qty Statistic ====================
-        test_time = SummaryGenerator.calculate_test_time(df_module.prr_df)
-        site_stats = SummaryGenerator.calculate_site_statistics(df_module.prr_df)
-        retest_stats = SummaryGenerator.calculate_retest_statistics(df_module.prr_df)
+        # Pass/Fail, Test Time, Bin 统计使用筛选后的final_test_prr_df
+        # Retest 统计必须使用完整的prr_df_full
+        test_time = SummaryGenerator.calculate_test_time(final_test_prr_df)
+        site_stats = SummaryGenerator.calculate_site_statistics(final_test_prr_df)
+        retest_stats = SummaryGenerator.calculate_retest_statistics(prr_df_full)
         
         lines.append("Qty Statistic")
         lines.append(f"Test Time:      {test_time['ALL']} ms")
@@ -308,7 +319,7 @@ class SummaryGenerator:
         lines.append("")
         
         # ==================== Soft Bin Statistic ====================
-        soft_bin_stats = SummaryGenerator.calculate_bin_statistics(df_module.prr_df, 'SOFT_BIN')
+        soft_bin_stats = SummaryGenerator.calculate_bin_statistics(final_test_prr_df, 'SOFT_BIN')
         
         lines.append("Soft Bin Statistic")
         lines.append(f"BIN:   Bin Name                       {'All':<16}")
@@ -331,7 +342,7 @@ class SummaryGenerator:
         lines.append("")
 
         # ==================== Hard Bin Statistic ====================
-        hard_bin_stats = SummaryGenerator.calculate_bin_statistics(df_module.prr_df, 'HARD_BIN')
+        hard_bin_stats = SummaryGenerator.calculate_bin_statistics(final_test_prr_df, 'HARD_BIN')
 
         lines.append("Hard Bin Statistic")
         lines.append(f"BIN:   Bin Name                       {'All':<16}")

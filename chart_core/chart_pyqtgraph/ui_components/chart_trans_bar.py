@@ -18,7 +18,7 @@ from PySide2.QtGui import QCloseEvent
 from pyqtgraph import InfiniteLine, BarGraphItem
 
 from app_test.test_utils.wrapper_utils import Time
-from chart_core.chart_pyqtgraph.core.mixin import BasePlot, GraphRangeSignal, PlotWidget
+from chart_core.chart_pyqtgraph.core.mixin import BasePlot, GraphRangeSignal, PlotWidget, RangeData
 from chart_core.chart_pyqtgraph.core.view_box import CustomViewBox
 from chart_core.chart_pyqtgraph.ui_components.ui_unit_chart import UnitChartWindow
 from common.li import Li
@@ -42,10 +42,12 @@ class TransBarChart(UnitChartWindow, BasePlot):
     list_bins: Union[Tuple[np.ndarray, Any], np.ndarray] = None
     chart_v_lines: List[InfiniteLine] = None
     limit_lines: List[InfiniteLine] = None  # limit线列表
+    bar_items: List[BarGraphItem] = None # 用于存储动态创建的BarGraphItem
 
     def __init__(self, li: Li):
         super(TransBarChart, self).__init__()
         self.li = li
+        self.p_range = RangeData()
         self.rota = 0b010101
         self.sig = 0 if self.rota & 0b1000 else 1
 
@@ -54,24 +56,22 @@ class TransBarChart(UnitChartWindow, BasePlot):
         self.setCentralWidget(self.pw)
         self.pw.hideButtons()
 
-        self.bg1 = BarGraphItem(x0=[], y=[], y0=[], y1=[], width=[])
-        self.bg2 = BarGraphItem(x0=[], y=[], y0=[], y1=[], width=[])
-
-        self.pw.addItem(self.bg1)
-        self.pw.addItem(self.bg2)
+        self.legend = self.pw.addLegend()
+        self.legend.anchor((1, 0), (1, 0))  # (1,0) is the top-right corner
 
         self.bottom_axis = self.pw.getAxis("bottom")
         self.bottom_axis.setHeight(60)
         self.left_axis = self.pw.getAxis("left")
         self.left_axis.setWidth(60)
 
-        self.pw.setMouseEnabled(x=False)
+        self.pw.setMouseEnabled(x=False, y=True) # 允许Y轴缩放
         self.vb.select_signal.connect(self.select_range)
         self.li.QChartSelect.connect(self.li_chart_signal)
         self.li.QChartRefresh.connect(self.li_chart_signal)
 
         self.chart_v_lines = []
         self.limit_lines = []
+        self.bar_items = []
 
     def init_movable_line(self):
         h_line = InfiniteLine(angle=0, movable=False, label='y={value:0.5f}', labelOpts={'color': (0, 0, 0)})
@@ -133,6 +133,8 @@ class TransBarChart(UnitChartWindow, BasePlot):
         self.li.set_chart_data(pd.concat(chart_prr_list))
 
     def set_range_data_to_chart(self, a, ax) -> bool:
+        if hasattr(self, 'vb'):
+            self.update_legend_position()
         res = super(TransBarChart, self).set_range_data_to_chart(a, ax)
         if res:
             self.set_front_chart()
@@ -149,20 +151,21 @@ class TransBarChart(UnitChartWindow, BasePlot):
             return
         if self.key not in self.li.capability_key_dict:
             return
-        # 清除旧的分割线
-        for v_line in self.chart_v_lines:
-            self.vb.removeItem(v_line)
-        self.chart_v_lines.clear()
 
-        # 清除旧的limit线
-        for limit_line in self.limit_lines:
-            self.vb.removeItem(limit_line)
-        self.limit_lines.clear()
+        # 清理旧的图表元素
+        self._clear_plot_items()
+
+        # 定义颜色列表
+        colors = [
+            (217, 83, 25, 150), (0, 114, 189, 150), (237, 177, 32, 150),
+            (126, 47, 142, 150), (119, 172, 48, 150), (77, 190, 238, 150),
+            (162, 20, 47, 150)
+        ]
+        color_index = 0
 
         # 处理y_min和y_max相同的情况
         y_min, y_max = self.p_range.y_min, self.p_range.y_max
         if y_min == y_max:
-            # 当limit相同时，设置一个合理的范围以显示数据分布
             if y_min == 0:
                 y_min, y_max = -0.1, 0.1
             else:
@@ -170,50 +173,55 @@ class TransBarChart(UnitChartWindow, BasePlot):
                 y_min, y_max = y_min - offset, y_max + offset
 
         self.list_bins = np.linspace(y_min, y_max, UiGlobalVariable.GraphBins)
-        columns, x0, y0, y1, y, width, self.bar_width = [], [], [], [], [], [], 0
-        chart_v_lines_x_list = []  # 用于在柱状图的底部用一条竖线分割开
+        bin_centers = (self.list_bins[:-1] + self.list_bins[1:]) / 2
+        bin_height = self.list_bins[1] - self.list_bins[0]
 
-        for index, (key, df) in enumerate(self.li.to_chart_csv_data.group_df.items()):
-            columns.append(key)
-            if self.li.to_chart_csv_data.select_group is not None:
-                if key not in self.li.to_chart_csv_data.select_group:
-                    continue
-            if len(df) == 0:
-                continue
+        # 检查是否有分组
+        group_keys = self.li.to_chart_csv_data.group_df.keys()
+        has_grouping = len(group_keys) > 1 or next(iter(group_keys), "*@*") != "*@*"
+
+        if not has_grouping:
+            # 无分组逻辑
+            df = self.li.to_chart_csv_data.df
             temp_dis = df[self.key].value_counts(bins=self.list_bins, sort=False)
-            if len(temp_dis) == 0:
-                continue
-            self.bar_width = max(temp_dis) if max(temp_dis) > self.bar_width else self.bar_width
-            chart_v_lines_x_list.append(index + 0.2)
-            for bin_index, value in enumerate(temp_dis.values):
-                x0.append(index + 0.2)
-                y0.append(self.list_bins[bin_index])
-                y1.append(self.list_bins[bin_index + 1])
-                y.append((self.list_bins[bin_index + 1] + self.list_bins[bin_index]) / 2)
-                width.append(value)
-
-        x0 = np.array(x0) * self.bar_width
-        if self.li.to_chart_csv_data.chart_df is None:
-            brush = (217, 83, 25, 255)
+            bar_item = BarGraphItem(x0=0, y=bin_centers, width=temp_dis.values, height=bin_height,
+                                    brush=colors[0], name="All Data")
+            self.pw.addItem(bar_item)
+            self.bar_items.append(bar_item)
         else:
-            brush = (217, 83, 25, 95)
-        self.bg1.setOpts(x0=x0, y=y, y0=y0, y1=y1, width=width, brush=brush)
-        self.ticks = columns
-        ticks = [((idx + 0.2) * self.bar_width, label.replace("|", "\r\n").replace("@", "\r\n"))
-                 for idx, label in enumerate(self.ticks)]
-        self.bottom_axis.setTicks((ticks, []))
-        for v_line_x_data in chart_v_lines_x_list:
-            v_line = InfiniteLine(angle=90, movable=False)
-            self.vb.addItem(v_line, ignoreBounds=True)
-            v_line.setPos(v_line_x_data * self.bar_width)
-            self.chart_v_lines.append(v_line)
+            # 有分组逻辑
+            for key, df in self.li.to_chart_csv_data.group_df.items():
+                if self.li.to_chart_csv_data.select_group is not None:
+                    if key not in self.li.to_chart_csv_data.select_group:
+                        continue
+                if len(df) == 0:
+                    continue
+                
+                temp_dis = df[self.key].value_counts(bins=self.list_bins, sort=False)
+                if len(temp_dis) == 0:
+                    continue
+
+                color = colors[color_index % len(colors)]
+                color_index += 1
+                
+                bar_item = BarGraphItem(x0=0, y=bin_centers, width=temp_dis.values, height=bin_height,
+                                        brush=color, name=key)
+                self.pw.addItem(bar_item)
+                self.bar_items.append(bar_item)
+
+        self.bottom_axis.setLabel("Count")
+        self.left_axis.setLabel("Value")
+        self.bottom_axis.setTicks(None) # 使用默认刻度
 
         # 添加limit线显示
         self._add_limit_lines()
 
         if not self.change:
-            self.vb.setYRange(self.p_range.y_min, self.p_range.y_max)
+            self.vb.setYRange(y_min, y_max)
             self.change = True
+    
+            # 更新图例位置
+            self.update_legend_position()
 
     def _add_limit_lines(self):
         """
@@ -282,33 +290,71 @@ class TransBarChart(UnitChartWindow, BasePlot):
                 self.vb.addItem(new_hi_line, ignoreBounds=True)
                 new_hi_line.setPos(new_hi_limit)
                 self.limit_lines.append(new_hi_line)
+        
+    def update_legend_position(self):
+        """
+        根据limit线的位置动态调整legend的位置, 防止遮挡
+        """
+        if not hasattr(self, 'legend') or self.legend is None:
+            return
+
+        # 获取视图的Y轴范围
+        view_y_range = self.vb.viewRange()[1]
+        view_y_min, view_y_max = view_y_range
+
+        # 获取所有HI_LIMIT线的值
+        hi_limits = []
+        if self.key in self.li.capability_key_dict:
+            capability_info = self.li.capability_key_dict[self.key]
+            hi_limit = capability_info.get('HI_LIMIT')
+            new_hi_limit = capability_info.get('NEW_HI_LIMIT')
+            if hi_limit is not None:
+                hi_limits.append(hi_limit)
+            if new_hi_limit is not None:
+                hi_limits.append(new_hi_limit)
+
+        # 检查是否有limit线与legend重叠
+        overlap = False
+        if hi_limits:
+            # 根据图例中的项目数量动态计算高度比例
+            num_items = len(self.legend.items)
+            base_ratio = 0.1  # 基础高度比例
+            ratio_per_item = 0.05  # 每个项目的额外比例
+            legend_height_ratio = base_ratio + num_items * ratio_per_item
+            
+            legend_y_min = view_y_max - (view_y_max - view_y_min) * legend_height_ratio
+            
+            for limit in hi_limits:
+                if limit > legend_y_min and limit < view_y_max:
+                    overlap = True
+                    break
+        
+        if overlap:
+            # 如果重叠，将图例移动到右下角
+            self.legend.anchor((1, 1), (1, 1))
+        else:
+            # 否则，保持在右上角
+            self.legend.anchor((1, 0), (1, 0))
 
     @Time()
+    def _clear_plot_items(self):
+        """清理图表上的所有项目"""
+        for item in self.bar_items:
+            self.pw.removeItem(item)
+        self.bar_items.clear()
+
+        for v_line in self.chart_v_lines:
+            self.vb.removeItem(v_line)
+        self.chart_v_lines.clear()
+
+        for limit_line in self.limit_lines:
+            self.vb.removeItem(limit_line)
+        self.limit_lines.clear()
+
     def set_front_chart(self):
-        self.bg2.setOpts(x0=[], y=[], y0=[], y1=[], width=[])
+        # self.bg2.setOpts(x0=[], y=[], y0=[], y1=[], width=[]) # bg2 is removed
         self.set_df_chart()
-        if self.li.to_chart_csv_data.chart_df is None:
-            return
-        if self.list_bins is None:
-            return
-        x0, y0, y1, y, width = [], [], [], [], []
-        for key, df in self.li.to_chart_csv_data.group_chart_df.items():
-            if self.li.to_chart_csv_data.select_group is not None:
-                if key not in self.li.to_chart_csv_data.select_group:
-                    continue
-            if len(df) == 0:
-                continue
-            temp_dis = df[self.key].value_counts(bins=self.list_bins, sort=False)
-            if len(temp_dis) == 0:
-                continue
-            for bin_index, value in enumerate(temp_dis.values):
-                x0.append(self.ticks.index(key) + 0.2)
-                y0.append(self.list_bins[bin_index])
-                y1.append(self.list_bins[bin_index + 1])
-                y.append((self.list_bins[bin_index + 1] + self.list_bins[bin_index]) / 2)
-                width.append(value)
-        x0 = np.array(x0) * self.bar_width
-        self.bg2.setOpts(x0=x0, y=y, y0=y0, y1=y1, width=width, brush=(217, 83, 25, 255))
+        # The rest of the logic is now handled within set_df_chart
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self.__del__()

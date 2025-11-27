@@ -22,11 +22,10 @@ class JmpFit:
         """.format(one_ways=",".join(one_ways), col=col)
 
     @staticmethod
-    def one_way(arg: dict, send_to_report: str) -> str:
-        test_text = str(arg["TEST_NUM"]) + ":" + arg["TEST_TXT"]
+    def one_way(key: str, arg: dict, send_to_report: str) -> str:
         return """
         Oneway(
-        Y( :Name( "{test_text}" ) ),
+        Y( :"{test_text}" ),
         X( :"ALL_GROUP" ),
         All Graphs( 0 ),
         Means and Std Dev( 1 ),
@@ -36,7 +35,7 @@ class JmpFit:
         Histograms( 1 ),
             {send_to_report}
         )
-        """.format(test_text=test_text, send_to_report=send_to_report)
+        """.format(test_text=key, send_to_report=send_to_report)
 
     @staticmethod
     def limit_color_dis(cpk_info: dict) -> str:

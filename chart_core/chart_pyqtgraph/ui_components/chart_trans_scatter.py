@@ -19,7 +19,7 @@ from PySide2.QtCore import Qt
 from PySide2.QtGui import QResizeEvent, QCloseEvent
 from pyqtgraph import ScatterPlotItem, InfiniteLine
 
-from chart_core.chart_pyqtgraph.core.mixin import BasePlot, GraphRangeSignal, PlotWidget
+from chart_core.chart_pyqtgraph.core.mixin import BasePlot, GraphRangeSignal, PlotWidget, RangeData
 from chart_core.chart_pyqtgraph.core.view_box import CustomViewBox, pg
 from chart_core.chart_pyqtgraph.ui_components.ui_unit_chart import UnitChartWindow
 from common.li import Li
@@ -54,7 +54,8 @@ class TransScatterChart(UnitChartWindow, BasePlot):
         self.pw = PlotWidget(viewBox=self.vb, enableMenu=False)
         self.setCentralWidget(self.pw)
         self.pw.hideButtons()
-        self.pw.addLegend(colCount=4)
+        self.legend = self.pw.addLegend(colCount=4)
+        self.legend.anchor((1, 0), (1, 0))  # (1,0) is the top-right corner
 
         self.bottom_axis = self.pw.getAxis("bottom")
         self.bottom_axis.setHeight(20)
@@ -75,6 +76,7 @@ class TransScatterChart(UnitChartWindow, BasePlot):
         self.scatter_front_list = list()
         self.brush_cache = dict()
         self.limit_lines = []
+        self.p_range = RangeData()
 
     def init_movable_line(self):
         v_line = InfiniteLine(angle=90, movable=False, label='x={value:0.0f}', labelOpts={'color': (0, 0, 0)})
@@ -112,6 +114,14 @@ class TransScatterChart(UnitChartWindow, BasePlot):
             chart_prr_list.append(chart_prr)
 
         self.li.set_chart_data(pd.concat(chart_prr_list))
+
+    def set_range_data_to_chart(self, a, ax) -> bool:
+        if hasattr(self, 'vb'):
+            self.update_legend_position()
+        res = super(TransScatterChart, self).set_range_data_to_chart(a, ax)
+        if res:
+            self.set_front_chart()
+        return res
 
     @GraphRangeSignal
     def set_df_chart(self):
@@ -185,6 +195,8 @@ class TransScatterChart(UnitChartWindow, BasePlot):
         if not self.change:
             self.vb.setYRange(self.p_range.y_min, self.p_range.y_max)
             self.change = True
+        
+        self.update_legend_position()
 
         if not self.line_init:
             self.init_movable_line()
@@ -257,6 +269,51 @@ class TransScatterChart(UnitChartWindow, BasePlot):
                 self.vb.addItem(new_hi_line, ignoreBounds=True)
                 new_hi_line.setPos(new_hi_limit)
                 self.limit_lines.append(new_hi_line)
+
+    def update_legend_position(self):
+        """
+        根据limit线的位置动态调整legend的位置, 防止遮挡
+        """
+        if not hasattr(self, 'legend') or self.legend is None:
+            return
+
+        # 获取视图的Y轴范围
+        view_y_range = self.vb.viewRange()[1]
+        view_y_min, view_y_max = view_y_range
+
+        # 获取所有HI_LIMIT线的值
+        hi_limits = []
+        if self.key in self.li.capability_key_dict:
+            capability_info = self.li.capability_key_dict[self.key]
+            hi_limit = capability_info.get('HI_LIMIT')
+            new_hi_limit = capability_info.get('NEW_HI_LIMIT')
+            if hi_limit is not None:
+                hi_limits.append(hi_limit)
+            if new_hi_limit is not None:
+                hi_limits.append(new_hi_limit)
+
+        # 检查是否有limit线与legend重叠
+        overlap = False
+        if hi_limits:
+            # 根据图例中的项目数量动态计算高度比例
+            num_items = len(self.legend.items)
+            base_ratio = 0.1  # 基础高度比例
+            ratio_per_item = 0.05  # 每个项目的额外比例
+            legend_height_ratio = base_ratio + num_items * ratio_per_item
+            
+            legend_y_min = view_y_max - (view_y_max - view_y_min) * legend_height_ratio
+            
+            for limit in hi_limits:
+                if limit > legend_y_min and limit < view_y_max:
+                    overlap = True
+                    break
+        
+        if overlap:
+            # 如果重叠，将图例移动到右下角
+            self.legend.anchor((1, 1), (1, 1))
+        else:
+            # 否则，保持在右上角
+            self.legend.anchor((1, 0), (1, 0))
 
     @GraphRangeSignal
     def set_front_chart(self):

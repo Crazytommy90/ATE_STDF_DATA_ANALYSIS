@@ -75,110 +75,198 @@ class NewJmpFactory:
         }
 
     @staticmethod
-    def jmp_distribution(capability: dict, title: str = "dis_bar") -> str:
+    def jmp_distribution(capability: dict, title: str = "dis_bar", by_columns: list = None, overlay_column: str = None, show_color_chart: bool = True) -> str:
         """
-        :param:
-
-            jmp_limit: limit namedtuple
-            jmp_cpk: li.cpk_dict 中取出
-            title:str
-            ...
-        :return:
+        使用Graph Builder生成带颜色叠加的分布图, 并附带统计报告
+        修改后：为每个测试项生成一个图表和报告的组合，然后垂直排列所有组合。
         """
-        jmp_dis = JmpDistribution()
-        """ 要修改一些全局参数可以在set_config这里修改 """
-        jmp_dis.set_config(
-            "Stack( 1 )",
-            "By(  )",
-            "Automatic Recalc( 1 )",
-            "Arrange in Rows( {col} )".format(col=UiGlobalVariable.JmpPlotColumn)
-        )
+        if not capability:
+            return ""
 
+        # --- Part 0: Create combined column script if needed (once for all graphs) ---
+        pre_script = ""
+        final_overlay_column = overlay_column
+        if by_columns and overlay_column:
+            final_overlay_column = "Combined_Overlay"
+            all_cols = by_columns + [overlay_column]
+            cols_to_combine = sorted(list(set(col for col in all_cols if col.upper() != 'OVERLAY_GROUP')))
+            formula_parts = [f':{col}' for col in cols_to_combine]
+            formula = ' || "_" || '.join(formula_parts)
+            pre_script = f'Current Data Table() << New Column( "{final_overlay_column}", Character, Formula( {formula} ) );\n'
+
+        # --- Loop through each test item to create a combined graph-report view ---
+        combined_item_scripts = []
         for key, row in capability.items():
-            # new_continuous_distribution
-            column = "Column( :\"{}\"  )".format(key)
-            hor = "Horizontal Layout( 1 )"
-            ver = "Vertical( 0 ), Outlier Box Plot( {} )".format(1 if UiGlobalVariable.JmpDisPlotBox else 0)
-            cap_ans = ""
-            if not UiGlobalVariable.JmpNoLimit:
-                cap_ans = "Capability Analysis( LSL( {l_limit} ), USL( {h_limit} ) )".format(
-                    **NewJmpFactory.get_jmp_lsl_usl(row)
+            # --- Part 1B: Generate the statistical report for the current item ---
+            single_item_capability = {key: row}
+            report_script = NewJmpFactory.jmp_distribution_report_only(single_item_capability, title, by_columns)
+
+            # --- Part 1A & 1C: Conditionally generate graph and combine ---
+            if show_color_chart:
+                # --- Part 1A: Generate the overlaid graph for the current item ---
+                overlay_str = f', Overlay( :{final_overlay_column} )' if final_overlay_column else ''
+                elements_str = 'Histogram( X, Legend( 5 ) )'
+                if UiGlobalVariable.JmpDisPlotBox and not final_overlay_column:
+                    elements_str += ', Box Plot( X, Legend( 6 ) )'
+
+                jmp_gb = JmpGraphBuilder()
+                variables_str = f'X( :"{key}" ){overlay_str}'
+                
+                jmp_gb.set_config(
+                    f"""
+                    Size( 800, 480 ),
+                    Show Control Panel( 0 ),
+                    Variables( {variables_str} ),
+                    Elements( {elements_str} )
+                    """
                 )
-            jmp_dis.new_continuous_distribution(column, hor, ver, cap_ans)
+                
+                limits = NewJmpFactory.get_jmp_lsl_usl(row, is_dis=True)
+                axis_params = f'Format( "Fixed Dec", 12, {limits["decimal"]} ), Min( {limits["min"]} ), Max( {limits["max"]} ), Inc( {limits["inc"]} )'
+                
+                ref_lines_str = ""
+                if not UiGlobalVariable.JmpNoLimit:
+                    ref_lines_str = f"""
+                        Add Ref Line( {limits['l_limit']}, "Solid", "Medium Dark Red", "LSL({limits['l_limit']})", 2),
+                        Add Ref Line( {limits['h_limit']}, "Solid", "Dark Red", "USL({limits['h_limit']})", 2 ),
+                        Add Ref Line( {limits['avg']}, "Dashed", "Blue", "Mean({limits['avg']})", 1 )
+                    """
+                
+                jmp_gb.new_dispatch(f'Dispatch(,"{key}",ScaleBox,{{{axis_params}}})')
+                if ref_lines_str:
+                    jmp_gb.new_dispatch(f'Dispatch(,"Graph Builder",FrameBox,{{{ref_lines_str}}})')
+                
+                graph_script = jmp_gb.execute(no_header=True)
 
-            # new_dispatch
-            dis_limit_box = ""
-            if not UiGlobalVariable.JmpNoLimit:
-                jmp_lsl_usl = NewJmpFactory.get_jmp_lsl_usl(row, is_dis=True)
-                jmp_lsl_usl["inc"] = jmp_lsl_usl["inc"] * 2
-                dis_limit_box = """
-            Dispatch( {{:"{column}"}} , "1", ScaleBox, 
-            {{Min( {min} ), Max( {max} ), Inc( {inc} ), Minor Ticks( 1 )}})
-                """.format(
-                    column=key,
-                    **jmp_lsl_usl
-                )
-            cap_ans_number_box_collapse = """
-            Dispatch({{ :"{column}",  "Capability Analysis"}},"Portion",StringColBox,{{Visibility( "Collapse" )}})
-            """.format(
-                column=key
-            )
-            cap_ans_string_box_collapse = """
-            Dispatch({{ :"{column}",  "Capability Analysis"}},"% Actual",NumberColBox,{{Visibility( "Collapse" )}})
-            """.format(
-                column=key
-            )
-            outline_box_close = ""
-            if not UiGlobalVariable.JmpDisPlotSigma:
-                outline_box_close = """
-            Dispatch({{ :"{column}",  "Capability Analysis"}}, "长期 Sigma", OutlineBox, {{ Close( 1 ) }})
-                """.format(
-                    column=key
-                )
+                # --- Part 1C: Combine the graph and report side-by-side for the current item ---
+                item_script = JmpBox.new_h_list_box(graph_script, report_script)
+            else:
+                item_script = report_script
 
-            jmp_dis.new_dispatch(dis_limit_box, cap_ans_number_box_collapse, cap_ans_string_box_collapse,
-                                 outline_box_close)
+            combined_item_scripts.append(item_script)
 
-        jmp_dis.new_dispatch("""
-            Dispatch( , "Distributions", OutlineBox, {{Set Title( "{}" )}} )
-        """.format(title))
+        # --- Part 2: Combine all item-specific views vertically ---
+        combined_script = JmpBox.new_v_list_box(*combined_item_scripts)
 
-        return jmp_dis.execute()
+        # --- Part 3: Wrap the combined view in a window ---
+        window_script = JmpBox.new_window(JmpBox.new_outline_box(combined_script, title=title))
+
+        # --- Part 4: Prepend the column creation script to the window script ---
+        final_script = pre_script + window_script
+
+        return final_script
+
 
     @staticmethod
-    def jmp_distribution_trans_bar(capability: dict, title: str = "trans_bar") -> str:
-        jmp_plots = []
+    def jmp_distribution_report_only(capability: dict, title: str = "report", by_columns: list = None) -> str:
+        """
+        使用Distribution平台只生成统计报告，不显示图表
+        """
+        jmp_dis_reports = []
+        by_column_str = ""
+        if by_columns:
+            by_cols = ", ".join([f':{col}' for col in by_columns])
+            by_column_str = f"By( {by_cols} )"
+
         for key, row in capability.items():
-            jmp_dis = JmpGraphBuilder()
-            jmp_dis.set_config(
-                """
-            Size( 1085, 320 ),
-            Show Control Panel( 0 ),
-            Legend Position( "Inside Right" ),
-            Variables( Group X( :"GROUP" ), Overlay( :GROUP ), X( :"DA_GROUP" ), Y( :"{column}" ) ),
-            Elements( Histogram( X, Y, Legend( 5 ) ) )
-                """.format(column=key)
-            )
-            jmp_dis.new_dispatch(
-                """
-            Dispatch(
-            ,
-            "{column}",
-            ScaleBox,
-            {{
-            Format( "Fixed Dec", 12, {decimal} ), Min( {min} ), Max( {max} ), Inc( {inc} ), Minor Ticks( 0 ), 
-            Add Ref Line( {l_limit}, "Solid", "Medium Dark Red", "下限值({l_limit})", 1), 
-            Add Ref Line( {h_limit}, "Solid", "Dark Red", "上限值({h_limit})", 1 ), 
-            Add Ref Line( {avg}, "Solid", "Medium Dark Blue", "良品均值({avg})", 1)
-            }}
-            )
-                """.format(
-                    column=key,
-                    **NewJmpFactory.get_jmp_lsl_usl(row, is_dis=True)
+            jmp_dis = JmpDistribution()
+            limits = NewJmpFactory.get_jmp_lsl_usl(row, is_dis=True)
+            cap_ans = ""
+            if not UiGlobalVariable.JmpNoLimit:
+                cap_ans = f"Capability Analysis( LSL( {limits['l_limit']} ), USL( {limits['h_limit']} ) )"
+            
+            jmp_dis.set_config("Stack( 1 )", "Automatic Recalc( 1 )", by_column_str)
+            jmp_dis.new_continuous_distribution(f'Column( :"{key}" )', "Horizontal Layout( 1 )", "Vertical( 0 )", cap_ans)
+
+            # 合理化坐标轴
+            axis_params = f'Format( "Fixed Dec", 12, {limits["decimal"]} ), Min( {limits["min"]} ), Max( {limits["max"]} ), Inc( {limits["inc"]} )'
+            jmp_dis.new_dispatch(f'Dispatch( {{:"{key}"}}, "1", ScaleBox, {{{axis_params}}} )')
+            
+            # 隐藏直方图，只保留报告
+            jmp_dis.new_dispatch(f'Dispatch( {{:"{key}"}}, "Histogram", OutlineBox, {{Close( 1 )}} )')
+            # 为报告添加标题
+            jmp_dis.new_dispatch(f'Dispatch( , "Distributions", OutlineBox, {{Set Title( "{key} - {title}" )}} )')
+            jmp_dis_reports.append(jmp_dis.execute(no_header=True))
+            
+        return JmpBox.new_v_list_box(*jmp_dis_reports)
+
+    @staticmethod
+    def jmp_distribution_trans_bar(capability: dict, title: str = "trans_bar", by_columns: list = None, overlay_column: str = None, show_color_chart: bool = True) -> str:
+        """
+        使用Graph Builder生成带颜色叠加的横向分布图, 并附带统计报告
+        修改后：为每个测试项生成一个图表和报告的组合，然后垂直排列所有组合。
+        """
+        if not capability:
+            return ""
+
+        # --- Part 0: Create combined column script if needed (once for all graphs) ---
+        pre_script = ""
+        final_overlay_column = overlay_column
+        if by_columns and overlay_column:
+            final_overlay_column = "Combined_Overlay"
+            all_cols = by_columns + [overlay_column]
+            cols_to_combine = sorted(list(set(col for col in all_cols if col.upper() != 'OVERLAY_GROUP')))
+            formula_parts = [f':{col}' for col in cols_to_combine]
+            formula = ' || "_" || '.join(formula_parts)
+            pre_script = f'Current Data Table() << New Column( "{final_overlay_column}", Character, Formula( {formula} ) );\n'
+
+        # --- Loop through each test item to create a combined graph-report view ---
+        combined_item_scripts = []
+        for key, row in capability.items():
+            # --- Part 1B: Generate the statistical report for the current item ---
+            single_item_capability = {key: row}
+            report_script = NewJmpFactory.jmp_distribution_report_only(single_item_capability, title, by_columns)
+
+            # --- Part 1A & 1C: Conditionally generate graph and combine ---
+            if show_color_chart:
+                # --- Part 1A: Generate the overlaid graph for the current item ---
+                overlay_str = f', Overlay( :{final_overlay_column} )' if final_overlay_column else ''
+                elements_str = 'Histogram( Y, Legend( 5 ) )'
+                if UiGlobalVariable.JmpDisPlotBox and not final_overlay_column:
+                    elements_str += ', Box Plot( Y, Legend( 6 ) )'
+
+                jmp_gb = JmpGraphBuilder()
+                variables_str = f'Y( :"{key}" ){overlay_str}'
+                
+                jmp_gb.set_config(
+                    f"""
+                    Size( 1085, 480 ),
+                    Show Control Panel( 0 ),
+                    Variables( {variables_str} ),
+                    Elements( {elements_str} )
+                    """
                 )
-            )
-            jmp_plots.append(jmp_dis.execute())
-        jmp_script = JmpBox.new_window(JmpBox.new_outline_box(*JmpBox.new_group_item(
-            *jmp_plots, col=UiGlobalVariable.JmpPlotColumn
-        ), title=title))
-        return jmp_script
+
+                limits = NewJmpFactory.get_jmp_lsl_usl(row, is_dis=True)
+                axis_params = f'Format( "Fixed Dec", 12, {limits["decimal"]} ), Min( {limits["min"]} ), Max( {limits["max"]} ), Inc( {limits["inc"]} )'
+                
+                ref_lines_str = ""
+                if not UiGlobalVariable.JmpNoLimit:
+                    ref_lines_str = f"""
+                        Add Ref Line( {limits['l_limit']}, "Solid", "Medium Dark Red", "LSL({limits['l_limit']})", 2),
+                        Add Ref Line( {limits['h_limit']}, "Solid", "Dark Red", "USL({limits['h_limit']})", 2 ),
+                        Add Ref Line( {limits['avg']}, "Dashed", "Blue", "Mean({limits['avg']})", 1 )
+                    """
+                
+                jmp_gb.new_dispatch(f'Dispatch(,"{key}",ScaleBox,{{{axis_params}}})')
+                if ref_lines_str:
+                    jmp_gb.new_dispatch(f'Dispatch(,"Graph Builder",FrameBox,{{{ref_lines_str}}})')
+                
+                graph_script = jmp_gb.execute(no_header=True)
+
+                # --- Part 1C: Combine the graph and report side-by-side for the current item ---
+                item_script = JmpBox.new_h_list_box(graph_script, report_script)
+            else:
+                item_script = report_script
+                
+            combined_item_scripts.append(item_script)
+
+        # --- Part 2: Combine all item-specific views vertically ---
+        combined_script = JmpBox.new_v_list_box(*combined_item_scripts)
+
+        # --- Part 3: Wrap the combined view in a window ---
+        window_script = JmpBox.new_window(JmpBox.new_outline_box(combined_script, title=title))
+
+        # --- Part 4: Prepend the column creation script to the window script ---
+        final_script = pre_script + window_script
+        return final_script

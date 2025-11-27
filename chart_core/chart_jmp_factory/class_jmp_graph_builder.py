@@ -46,16 +46,20 @@ class JmpGraphBuilder:
         """
         self.dispatch += ", ".join(strings) + ", "
 
-    def execute(self):
-        return """
+    def execute(self, no_header=False):
+        dispatch_str = self.dispatch.rstrip().rstrip(',')
+        script = """
         Graph Builder(
             {config},
-            
             SendToReport(
                 {dispatch}
             )
         )
         """.format(
-            config=self.config, dispatch=self.dispatch
+            config=self.config, dispatch=dispatch_str
         )
+        if no_header:
+            return script
+        from chart_core.chart_jmp.jmp_script_factory import JmpScript
+        return JmpScript.factory(script)
 

@@ -307,6 +307,7 @@ class Li(QObject):
         temp_result = temp_result.unstack(0).RESULT
         self.to_chart_csv_data.df = temp_result
 
+
     def background_generation_limit_data_use_to_pat(self):
         """
         用于PAT
@@ -488,6 +489,9 @@ class Li(QObject):
                 self._original_df_module.ptmd_df['TEST_ID'] == test_id
             ]
             if len(original_ptmd) > 0:
+                # 如果是FTR类型，则不进行重算
+                if original_ptmd.iloc[0]['DATAT_TYPE'] == 'FTR':
+                    continue
                 original_lo_limit = original_ptmd.iloc[0]['LO_LIMIT']
                 original_hi_limit = original_ptmd.iloc[0]['HI_LIMIT']
 

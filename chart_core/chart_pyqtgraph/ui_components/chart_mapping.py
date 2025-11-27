@@ -139,12 +139,12 @@ class BinLegendWidget(QWidget):
         self.layout.addWidget(self.legend_container)
         self.layout.addStretch()
         
-    def set_bin_data(self, bin_stats, color_dict):
+    def update_legend(self, stats_data, color_dict):
         """
-        设置bin统计数据，紧凑显示
+        更新图例，支持单个或分组的统计数据
         
         参数:
-            bin_stats: {bin_value: {'count': int, 'percentage': float, 'is_pass': bool}}
+            stats_data: 单个统计字典或分组的统计字典 {'group': stats}
             color_dict: {bin_value: (R, G, B, A)}
         """
         # 清除旧的图例
@@ -152,17 +152,38 @@ class BinLegendWidget(QWidget):
             item = self.grid_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
-        
+
+        # 检查是否为分组数据
+        # 检查是否为分组数据的逻辑
+        # 最终的、可靠的检查逻辑
+        is_grouped = False
+        if stats_data and isinstance(stats_data, dict):
+            # 如果键不全是整数，则认为是分组数据
+            if not all(isinstance(k, int) for k in stats_data.keys()):
+                is_grouped = True
+
+        if is_grouped:
+            for group_name, bin_stats in sorted(stats_data.items()):
+                group_title = QLabel(f"<b>Group: {group_name}</b>")
+                group_title.setFont(QFont("Arial", 10))
+                self.grid_layout.addWidget(group_title)
+                self._render_single_legend_block(bin_stats, color_dict)
+        else:
+            self._render_single_legend_block(stats_data, color_dict)
+
+    def _render_single_legend_block(self, bin_stats, color_dict):
+        """渲染单个图例块"""
+        if not bin_stats:
+            return
+
         # 排序：PASS在前，FAIL在后
         sorted_bins = sorted(bin_stats.items(),
                            key=lambda x: (not x[1]['is_pass'], x[0]))
         
-        # 创建平铺布局，每行显示8个
         row_widget = None
         row_layout = None
         
         for idx, (bin_val, stats) in enumerate(sorted_bins):
-            # 每8个创建新行
             if idx % 8 == 0:
                 row_widget = QWidget()
                 row_layout = QHBoxLayout(row_widget)
@@ -170,14 +191,12 @@ class BinLegendWidget(QWidget):
                 row_layout.setSpacing(3)
                 self.grid_layout.addWidget(row_widget)
             
-            # 创建单个bin图例项
             bin_item = QWidget()
-            bin_item.setFixedWidth(80)  # 固定宽度确保对齐
+            bin_item.setFixedWidth(120)
             bin_layout = QHBoxLayout(bin_item)
             bin_layout.setContentsMargins(1, 1, 1, 1)
             bin_layout.setSpacing(2)
             
-            # 颜色块
             color_label = QLabel()
             color_label.setFixedSize(12, 12)
             if bin_val in color_dict:
@@ -185,21 +204,19 @@ class BinLegendWidget(QWidget):
                 color_label.setStyleSheet(f"background-color: rgb({r}, {g}, {b}); border: 1px solid black;")
             bin_layout.addWidget(color_label)
             
-            # Bin信息文本：Bin 良率 数量
             info_text = f"B{bin_val} {stats['percentage']:.1f}% {stats['count']}"
             info_label = QLabel(info_text)
-            info_label.setFont(QFont("Arial", 7))
+            info_label.setFont(QFont("Arial", 9))
             bin_layout.addWidget(info_label)
             
             row_layout.addWidget(bin_item)
         
-        # 最后一行补齐空白项以保持对齐
         if row_layout:
             last_row_count = len(sorted_bins) % 8
             if last_row_count > 0:
                 for _ in range(8 - last_row_count):
                     spacer = QWidget()
-                    spacer.setFixedWidth(80)
+                    spacer.setFixedWidth(120)
                     row_layout.addWidget(spacer)
 
 
@@ -211,7 +228,6 @@ class MappingChart(UnitChartWindow):
     def __init__(self, li: Li):
         super(MappingChart, self).__init__()
         self.li = li
-        self.test_id = None
         
         # 坐标范围
         self.x_min = 0
@@ -254,6 +270,12 @@ class MappingChart(UnitChartWindow):
         
         control_layout.addStretch()
         
+        # First/Final Test 选择器
+        self.test_type_combo = QComboBox()
+        self.test_type_combo.addItems(["Final Test", "First Test"])
+        self.test_type_combo.currentIndexChanged.connect(self.refresh_mapping)
+        control_layout.addWidget(self.test_type_combo)
+
         # 刷新按钮
         refresh_btn = QPushButton("刷新")
         refresh_btn.clicked.connect(self.refresh_mapping)
@@ -316,30 +338,35 @@ class MappingChart(UnitChartWindow):
 
     def _calculate_bin_statistics(self, data_df, mapping_col):
         """
-        计算bin统计信息
+        计算bin统计信息.
         
         返回:
             bin_stats: {bin_value: {'count': int, 'percentage': float, 'is_pass': bool}}
         """
+        if data_df.empty or mapping_col not in data_df.columns:
+            return {}
+
         bin_stats = {}
         total_count = len(data_df)
         
         if total_count == 0:
             return bin_stats
         
-        # 按bin值分组统计
-        for bin_val in data_df[mapping_col].unique():
+        # 基于传入的数据进行统计
+        bin_counts = data_df[mapping_col].value_counts()
+        
+        for bin_val, count in bin_counts.items():
             if pd.isna(bin_val):
                 continue
-                
-            bin_data = data_df[data_df[mapping_col] == bin_val]
-            count = len(bin_data)
-            percentage = (count / total_count) * 100
             
-            # 判断是否为PASS (FailFlag.PASS = 1)
+            # 获取该bin的FAIL_FLAG (以第一个为代表)
             is_pass = False
             if 'FAIL_FLAG' in data_df.columns:
-                is_pass = bin_data['FAIL_FLAG'].iloc[0] == 1 if len(bin_data) > 0 else False
+                fail_flag_series = data_df[data_df[mapping_col] == bin_val]['FAIL_FLAG']
+                if not fail_flag_series.empty:
+                    is_pass = fail_flag_series.iloc[0] == 1
+
+            percentage = (count / total_count) * 100
             
             bin_stats[int(bin_val)] = {
                 'count': count,
@@ -349,16 +376,13 @@ class MappingChart(UnitChartWindow):
         
         return bin_stats
 
-    def set_data(self, test_id: int = None):
-        """设置数据"""
-        self.test_id = test_id
-        if test_id and self.li and hasattr(self.li, 'capability_key_dict'):
-            row = self.li.capability_key_dict.get(test_id, None)
-            if row:
-                title = f"T{row['TEST_ID']}: {row['TEST_TXT']} - Wafer Mapping"
-                self.title_label.setText(title)
-                self.setWindowTitle(title)
-
+    def set_data(self):
+        """设置数据并刷新"""
+        # 恢复默认标题
+        default_title = "Wafer Mapping"
+        self.title_label.setText(default_title)
+        self.setWindowTitle(default_title)
+        
         self.init_coord()
         self.refresh_mapping()
 
@@ -372,30 +396,30 @@ class MappingChart(UnitChartWindow):
             if not self.li or not hasattr(self.li, 'to_chart_csv_data') or self.li.to_chart_csv_data is None:
                 return
 
-            data_df = None
+            source_df = None
             if hasattr(self.li.to_chart_csv_data, 'chart_df') and self.li.to_chart_csv_data.chart_df is not None:
-                data_df = self.li.to_chart_csv_data.chart_df
+                source_df = self.li.to_chart_csv_data.chart_df.copy()
             elif hasattr(self.li.to_chart_csv_data, 'df') and self.li.to_chart_csv_data.df is not None:
-                data_df = self.li.to_chart_csv_data.df
+                source_df = self.li.to_chart_csv_data.df.copy()
 
-            if data_df is None or len(data_df) == 0:
+            if source_df is None or len(source_df) == 0:
                 return
 
             required_cols = ['X_COORD', 'Y_COORD']
-            missing_cols = [col for col in required_cols if col not in data_df.columns]
+            missing_cols = [col for col in required_cols if col not in source_df.columns]
             if missing_cols:
                 return
 
             mapping_col = 'SOFT_BIN'
-            if mapping_col not in data_df.columns:
+            if mapping_col not in source_df.columns:
                 return
 
             self.graphics_widget.clear()
 
-            if 'GROUP' in data_df.columns and len(data_df['GROUP'].unique()) > 1:
-                self._generate_grouped_mapping(data_df, mapping_col)
+            if 'GROUP' in source_df.columns and len(source_df['GROUP'].unique()) > 1:
+                self._generate_grouped_mapping(source_df, mapping_col)
             else:
-                self._generate_single_mapping(data_df, mapping_col)
+                self._generate_single_mapping(source_df, mapping_col)
 
         except RuntimeError:
             pass
@@ -405,6 +429,11 @@ class MappingChart(UnitChartWindow):
 
     def _generate_single_mapping(self, data_df, mapping_col):
         """生成单个Mapping图 - 竖条散点快速渲染（动态调整大小）"""
+        # 根据选择器过滤数据
+        test_type = self.test_type_combo.currentText()
+        keep_option = 'last' if test_type == 'Final Test' else 'first'
+        data_df = data_df.drop_duplicates(subset=['X_COORD', 'Y_COORD'], keep=keep_option)
+        
         bin_stats = self._calculate_bin_statistics(data_df, mapping_col)
         
         bin_values = data_df[mapping_col].dropna().values
@@ -496,7 +525,7 @@ class MappingChart(UnitChartWindow):
         self.tooltip_label.setVisible(False)
         plot_item.scene().sigMouseMoved.connect(lambda pos: self._on_mouse_moved(pos, plot_item))
         
-        self.legend_widget.set_bin_data(bin_stats, self.current_color_dict)
+        self.legend_widget.update_legend(bin_stats, self.current_color_dict)
     
     def _on_mouse_moved(self, pos, plot_item):
         """鼠标移动事件 - 显示tooltip"""
@@ -517,6 +546,9 @@ class MappingChart(UnitChartWindow):
 
     def _generate_grouped_mapping(self, data_df, mapping_col):
         """生成分组Mapping图 - 竖条散点（动态调整大小）"""
+        test_type = self.test_type_combo.currentText()
+        keep_option = 'last' if test_type == 'Final Test' else 'first'
+
         map_groups = data_df.groupby("GROUP")
 
         if len(map_groups) > 16:
@@ -526,15 +558,22 @@ class MappingChart(UnitChartWindow):
         cols = min(4, num_groups)
         rows = math.ceil(num_groups / cols)
 
-        bin_stats = self._calculate_bin_statistics(data_df, mapping_col)
+        # 颜色映射基于所有数据，确保颜色一致性
         bin_values = data_df[mapping_col].dropna().values
         fail_flags = data_df.loc[data_df[mapping_col].notna(), 'FAIL_FLAG'].values if 'FAIL_FLAG' in data_df.columns else np.ones(len(bin_values))
         _, self.current_color_dict = create_dynamic_colormap(bin_values, fail_flags, "SOFT_BIN")
 
-        # 芯片间距（数据坐标系）
+        all_group_stats = {}
         chip_spacing = 1.0
 
         for idx, (group_name, group_df) in enumerate(map_groups):
+            # 在每个组内部进行数据筛选
+            filtered_group_df = group_df.drop_duplicates(subset=['X_COORD', 'Y_COORD'], keep=keep_option)
+            
+            # 为每个组计算独立的统计数据
+            group_bin_stats = self._calculate_bin_statistics(filtered_group_df, mapping_col)
+            all_group_stats[group_name] = group_bin_stats
+
             row = idx // cols
             col = idx % cols
 
@@ -546,14 +585,15 @@ class MappingChart(UnitChartWindow):
             scatter_pos = []
             scatter_brushes = []
             
-            valid_mask = ~(np.isnan(group_df.X_COORD.values) | np.isnan(group_df.Y_COORD.values) | np.isnan(group_df[mapping_col].values))
+            # 使用筛选后的数据进行绘图
+            valid_mask = ~(np.isnan(filtered_group_df.X_COORD.values) | np.isnan(filtered_group_df.Y_COORD.values) | np.isnan(filtered_group_df[mapping_col].values))
             if np.any(valid_mask):
                 valid_indices = np.where(valid_mask)[0]
                 
                 for i in valid_indices:
-                    x = int(group_df.X_COORD.iloc[i])
-                    y = int(group_df.Y_COORD.iloc[i])
-                    bin_val = int(group_df[mapping_col].iloc[i])
+                    x = int(filtered_group_df.X_COORD.iloc[i])
+                    y = int(filtered_group_df.Y_COORD.iloc[i])
+                    bin_val = int(filtered_group_df[mapping_col].iloc[i])
                     
                     scatter_pos.append((x, y))
                     
@@ -573,7 +613,7 @@ class MappingChart(UnitChartWindow):
                 scatter = pg.ScatterPlotItem(
                     pos=scatter_pos,
                     brush=scatter_brushes,
-                    pen=None,  # 去掉黑边框
+                    pen=None,
                     size=bar_height,
                     symbol=path,
                     pxMode=False
@@ -591,9 +631,10 @@ class MappingChart(UnitChartWindow):
             plot_item.setYRange(y_center - radius, y_center + radius, padding=0.05)
             plot_item.setAspectLocked(False)
             plot_item.setMouseEnabled(x=True, y=True)
-            plot_item.autoRange()  # 首次生成后自动调整
+            plot_item.autoRange()
         
-        self.legend_widget.set_bin_data(bin_stats, self.current_color_dict)
+        # 使用新的图例方法显示所有分组的统计
+        self.legend_widget.update_legend(all_group_stats, self.current_color_dict)
 
     def closeEvent(self, event):
         """关闭事件处理"""

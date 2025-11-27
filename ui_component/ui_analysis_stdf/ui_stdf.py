@@ -209,7 +209,32 @@ class StdfLoadUi(QMainWindow, Ui_MainWindow):
         # 保存原始测试数据
         if self.li.to_chart_csv_data and self.li.to_chart_csv_data.df is not None:
             test_data_path = file_path.replace('.csv', '_test_data.csv')
-            self.li.to_chart_csv_data.df.to_csv(test_data_path, encoding='utf-8-sig')
+
+            # --- 方案二修复版：处理混合类型列名并排序 ---
+            df_raw = self.li.to_chart_csv_data.df
+
+            # 1. 分离TEST_ID列（整数）和元数据列（字符串）
+            test_id_columns = [col for col in df_raw.columns if isinstance(col, int)]
+            meta_columns = [col for col in df_raw.columns if not isinstance(col, int)]
+
+            # 2. 对TEST_ID列进行排序
+            sorted_test_ids = sorted(test_id_columns)
+
+            # 3. 合并列顺序（元数据列在前）
+            final_column_order = meta_columns + sorted_test_ids
+            df_to_save = df_raw[final_column_order]
+
+            # 4. 创建 TEST_ID -> TEST_NUM_TEST_TXT 的映射
+            name_map = {
+                row.TEST_ID: f"{row.TEST_NUM}_{row.TEST_TXT}"
+                for row in self.li.df_module.ptmd_df.itertuples()
+            }
+
+            # 5. 生成与最终DataFrame列顺序一致的描述性表头列表
+            header_list = [name_map.get(col, str(col)) for col in df_to_save.columns]
+
+            # 6. 导出CSV
+            df_to_save.to_csv(test_data_path, header=header_list, encoding='utf-8-sig')
             self.mdi_space_message_emit(f"测试数据已保存: {test_data_path}")
 
         # 保存汇总信息
@@ -231,11 +256,34 @@ class StdfLoadUi(QMainWindow, Ui_MainWindow):
             # 保存测试数据
             if self.li.to_chart_csv_data and self.li.to_chart_csv_data.df is not None:
                 # 限制数据量，避免Excel文件过大
-                test_df = self.li.to_chart_csv_data.df
-                if len(test_df) > 100000:  # 如果数据量太大，只保存前10万行
-                    test_df = test_df.head(100000)
-                    self.mdi_space_message_emit("测试数据量较大，仅保存前10万行")
-                test_df.to_excel(writer, sheet_name='测试数据')
+                df_raw = self.li.to_chart_csv_data.df
+                if len(df_raw) > 200000:  # 如果数据量太大，只保存前20万行
+                    df_raw = df_raw.head(200000)
+                    self.mdi_space_message_emit("测试数据量较大，仅保存前20万行")
+
+                # --- 与CSV导出相同的排序逻辑 ---
+                # 1. 分离TEST_ID列（整数）和元数据列（字符串）
+                test_id_columns = [col for col in df_raw.columns if isinstance(col, int)]
+                meta_columns = [col for col in df_raw.columns if not isinstance(col, int)]
+
+                # 2. 对TEST_ID列进行排序
+                sorted_test_ids = sorted(test_id_columns)
+
+                # 3. 合并列顺序（元数据列在前）
+                final_column_order = meta_columns + sorted_test_ids
+                df_to_save = df_raw[final_column_order]
+
+                # 4. 创建 TEST_ID -> TEST_NUM_TEST_TXT 的映射
+                name_map = {
+                    row.TEST_ID: f"{row.TEST_NUM}_{row.TEST_TXT}"
+                    for row in self.li.df_module.ptmd_df.itertuples()
+                }
+
+                # 5. 生成与最终DataFrame列顺序一致的描述性表头列表
+                header_list = [name_map.get(col, str(col)) for col in df_to_save.columns]
+
+                # 6. 导出Excel
+                df_to_save.to_excel(writer, sheet_name='测试数据', header=header_list)
 
             # 保存汇总信息
             if self.li.select_summary is not None:

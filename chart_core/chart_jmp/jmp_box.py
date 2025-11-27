@@ -36,7 +36,7 @@ class JmpBox:
         V List Box(
             {graphs}
         )
-        """.format(graphs=";".join(graph_builders))
+        """.format(graphs=", ".join(graph_builders))
 
     @staticmethod
     def new_h_list_box(*graph_builders) -> str:

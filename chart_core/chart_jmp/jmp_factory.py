@@ -34,8 +34,14 @@ class JmpFactory:
 
     @staticmethod
     def distribution_bar(calculation_capability: dict, title="数据分布图", **kwa) -> str:
+        # 检查是否有DA_GROUP分组（如SITE_NUM）
+        by_columns = []
+        jmp_df = kwa.get('jmp_df')
+        if jmp_df is not None and 'DA_GROUP' in jmp_df.columns and jmp_df['DA_GROUP'].nunique() > 1:
+            by_columns.append('DA_GROUP')
+        
         return NewJmpFactory.jmp_distribution(
-            capability=calculation_capability, title=title
+            capability=calculation_capability, title=title, by_columns=by_columns
         )
 
     @staticmethod
@@ -47,10 +53,10 @@ class JmpFactory:
     @staticmethod
     def comparing(calculation_capability: dict, title: str = "比较密度图", **kwa) -> str:
         jmp_script = JmpFit.fit_group(
-            *[JmpFit.one_way(arg, JmpUtils.send_to_report(
+            *[JmpFit.one_way(key, arg, JmpUtils.send_to_report(
                 JmpFit.fill_color_dis(),
                 JmpFit.limit_color_dis(arg)))
-              for arg in calculation_capability.values()]
+              for key, arg in calculation_capability.items()]
         )
         return jmp_script
 
