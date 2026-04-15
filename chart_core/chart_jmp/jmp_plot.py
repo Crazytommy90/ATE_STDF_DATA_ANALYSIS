@@ -24,7 +24,7 @@ class JmpPlot:
         Graph Builder(
             Show Control Panel( 0 ),
             Variables( X( :"{x}" ), Y( :"{y}" ),  {'Wrap( :"GROUP" )' if group else ''} ),
-            Elements( Points( X, Y, Legend( 5 ) ), Line Of Fit( X, Y, Legend( 6 ) , 
+            Elements( Points( X, Y, Legend( 8 ) ), Smoother( X, Y, Legend( 6 ) , 
             Confidence of Prediction( 1 ), Equation( 1 )), F Test( 1 ) ),
         );
         """

@@ -105,7 +105,10 @@ class NewJmpFactory:
             if show_color_chart:
                 # --- Part 1A: Generate the overlaid graph for the current item ---
                 overlay_str = f', Overlay( :{final_overlay_column} )' if final_overlay_column else ''
-                elements_str = 'Histogram( X, Legend( 5 ) )'
+                histogram_options = ""
+                if UiGlobalVariable.JmpPlotBin:
+                    histogram_options = f', Bin Count( {UiGlobalVariable.JmpBins} )'
+                elements_str = f'Histogram( X, Legend( 5 ){histogram_options} )'
                 if UiGlobalVariable.JmpDisPlotBox and not final_overlay_column:
                     elements_str += ', Box Plot( X, Legend( 6 ) )'
 
@@ -156,11 +159,10 @@ class NewJmpFactory:
 
         return final_script
 
-
     @staticmethod
     def jmp_distribution_report_only(capability: dict, title: str = "report", by_columns: list = None) -> str:
         """
-        使用Distribution平台只生成统计报告，不显示图表
+        使用Distribution平台生成带图表的统计报告
         """
         jmp_dis_reports = []
         by_column_str = ""
@@ -174,20 +176,70 @@ class NewJmpFactory:
             cap_ans = ""
             if not UiGlobalVariable.JmpNoLimit:
                 cap_ans = f"Capability Analysis( LSL( {limits['l_limit']} ), USL( {limits['h_limit']} ) )"
-            
+
             jmp_dis.set_config("Stack( 1 )", "Automatic Recalc( 1 )", by_column_str)
-            jmp_dis.new_continuous_distribution(f'Column( :"{key}" )', "Horizontal Layout( 1 )", "Vertical( 0 )", cap_ans)
+            dist_args = ["Horizontal Layout( 1 )", "Vertical( 0 )", cap_ans]
+            if UiGlobalVariable.JmpPlotBin:
+                dist_args.append(f'Histogram( Bin Count( {UiGlobalVariable.JmpBins} ) )')
+            jmp_dis.new_continuous_distribution(f'Column( :"{key}" )', *dist_args)
 
             # 合理化坐标轴
             axis_params = f'Format( "Fixed Dec", 12, {limits["decimal"]} ), Min( {limits["min"]} ), Max( {limits["max"]} ), Inc( {limits["inc"]} )'
             jmp_dis.new_dispatch(f'Dispatch( {{:"{key}"}}, "1", ScaleBox, {{{axis_params}}} )')
-            
-            # 隐藏直方图，只保留报告
-            jmp_dis.new_dispatch(f'Dispatch( {{:"{key}"}}, "Histogram", OutlineBox, {{Close( 1 )}} )')
+
+            # 根据JmpDisPlotSigma参数决定是否显示 "Long Term Sigma"
+            if not UiGlobalVariable.JmpDisPlotSigma:
+                jmp_dis.new_dispatch(f'Dispatch( {{:"{key}", "Capability Analysis"}}, "Long Term Sigma", OutlineBox, {{Close( 1 )}} )')
+
+            # 根据JmpDisPlotBox参数决定是否显示Quantiles(包含Box Plot)
+            if not UiGlobalVariable.JmpDisPlotBox:
+                jmp_dis.new_dispatch(f'Dispatch( {{:"{key}"}}, "Quantiles", OutlineBox, {{Close( 0 )}} )')
+
             # 为报告添加标题
             jmp_dis.new_dispatch(f'Dispatch( , "Distributions", OutlineBox, {{Set Title( "{key} - {title}" )}} )')
             jmp_dis_reports.append(jmp_dis.execute(no_header=True))
-            
+
+        return JmpBox.new_v_list_box(*jmp_dis_reports)
+
+    def jmp_distribution_report_only_tans_bar(capability: dict, title: str = "report", by_columns: list = None) -> str:
+        """
+        使用Distribution平台生成带图表的统计报告
+        """
+        jmp_dis_reports = []
+        by_column_str = ""
+        if by_columns:
+            by_cols = ", ".join([f':{col}' for col in by_columns])
+            by_column_str = f"By( {by_cols} )"
+
+        for key, row in capability.items():
+            jmp_dis = JmpDistribution()
+            limits = NewJmpFactory.get_jmp_lsl_usl(row, is_dis=True)
+            cap_ans = ""
+            if not UiGlobalVariable.JmpNoLimit:
+                cap_ans = f"Capability Analysis( LSL( {limits['l_limit']} ), USL( {limits['h_limit']} ) )"
+
+            jmp_dis.set_config("Stack( 1 )", "Automatic Recalc( 1 )", by_column_str)
+            dist_args = ["Horizontal Layout( 1 )", "Vertical( 1 )", cap_ans]
+            if UiGlobalVariable.JmpPlotBin:
+                dist_args.append(f'Histogram( Bin Count( {UiGlobalVariable.JmpBins} ) )')
+            jmp_dis.new_continuous_distribution(f'Column( :"{key}" )', *dist_args)
+
+            # 合理化坐标轴
+            axis_params = f'Format( "Fixed Dec", 12, {limits["decimal"]} ), Min( {limits["min"]} ), Max( {limits["max"]} ), Inc( {limits["inc"]} )'
+            jmp_dis.new_dispatch(f'Dispatch( {{:"{key}"}}, "1", ScaleBox, {{{axis_params}}} )')
+
+            # 根据JmpDisPlotSigma参数决定是否显示 "Long Term Sigma"
+            if not UiGlobalVariable.JmpDisPlotSigma:
+                jmp_dis.new_dispatch(f'Dispatch( {{:"{key}", "Capability Analysis"}}, "Long Term Sigma", OutlineBox, {{Close( 1 )}} )')
+
+            # 根据JmpDisPlotBox参数决定是否显示Quantiles(包含Box Plot)
+            #if not UiGlobalVariable.JmpDisPlotBox:
+                jmp_dis.new_dispatch(f'Dispatch( {{:"{key}"}}, "Quantiles", OutlineBox, {{Close( 0 )}} )')
+
+            # 为报告添加标题
+            jmp_dis.new_dispatch(f'Dispatch( , "Distributions", OutlineBox, {{Set Title( "{key} - {title}" )}} )')
+            jmp_dis_reports.append(jmp_dis.execute(no_header=True))
+
         return JmpBox.new_v_list_box(*jmp_dis_reports)
 
     @staticmethod
@@ -215,13 +267,16 @@ class NewJmpFactory:
         for key, row in capability.items():
             # --- Part 1B: Generate the statistical report for the current item ---
             single_item_capability = {key: row}
-            report_script = NewJmpFactory.jmp_distribution_report_only(single_item_capability, title, by_columns)
+            report_script = NewJmpFactory.jmp_distribution_report_only_tans_bar(single_item_capability, title, by_columns)
 
             # --- Part 1A & 1C: Conditionally generate graph and combine ---
             if show_color_chart:
                 # --- Part 1A: Generate the overlaid graph for the current item ---
                 overlay_str = f', Overlay( :{final_overlay_column} )' if final_overlay_column else ''
-                elements_str = 'Histogram( Y, Legend( 5 ) )'
+                histogram_options = ""
+                if UiGlobalVariable.JmpPlotBin:
+                    histogram_options = f', Bin Count( {UiGlobalVariable.JmpBins} )'
+                elements_str = f'Histogram( Y, Legend( 5 ){histogram_options} )'
                 if UiGlobalVariable.JmpDisPlotBox and not final_overlay_column:
                     elements_str += ', Box Plot( Y, Legend( 6 ) )'
 
@@ -270,3 +325,89 @@ class NewJmpFactory:
         # --- Part 4: Prepend the column creation script to the window script ---
         final_script = pre_script + window_script
         return final_script
+
+
+    @staticmethod
+    def jmp_distribution_multiple_items(test_items: list, title: str = "Multi-Item Comparison", min_val: float = None, max_val: float = None, group_columns: list = None) -> str:
+        """
+        生成JSL脚本，用于在单个窗口中垂直显示两个对比图：
+        1. 散点图 + 箱线图对比 (按测项着色)
+        2. 竖向分布图（仅直方图），并根据数据范围合理设置坐标轴
+        支持按GROUP/DA_GROUP进行分组叠加显示
+        """
+        if not test_items or len(test_items) < 2:
+            return ""
+
+        # --- Part 1: Create the Stack script (common for both graphs) ---
+        columns_to_stack = ", ".join([f':"{item}"' for item in test_items])
+        label_col_name = "Test Item"
+        data_col_name = "Value"
+        
+        stack_script = f"""
+        Current Data Table() << Stack(
+            columns( {columns_to_stack} ),
+            Source Label Column( "{label_col_name}" ),
+            Stacked Data Column( "{data_col_name}" )
+        );
+        """
+        
+        # --- Part 1B: Create combined overlay column if grouping is needed ---
+        final_overlay_column = f':"{label_col_name}"'
+        grouping_script = ""
+        if group_columns:
+            combined_col_name = "Combined_Overlay"
+            # Columns to combine are the newly stacked 'Test Item' and the original group columns
+            cols_to_combine = [f':"{label_col_name}"'] + [f':{col}' for col in group_columns]
+            formula = ' || "_" || '.join(cols_to_combine)
+            grouping_script = f'Current Data Table() << New Column( "{combined_col_name}", Character, Formula( {formula} ) );\n'
+            final_overlay_column = f':"{combined_col_name}"'
+
+
+        # --- Part 2A: Create Graph 1 (Box Plot + Points with Color) ---
+        gb1 = JmpGraphBuilder()
+        variables_str1 = f'X( :"{data_col_name}" ), Overlay( {final_overlay_column} )'
+        elements_str1 = 'Box Plot( X, Legend( 4 ) ), Points( X, Legend( 3 ) )'
+        gb1.set_config(
+            f"""
+            Size( 800, 600 ),
+            Show Control Panel( 0 ),
+            Variables( {variables_str1} ),
+            Elements( {elements_str1} )
+            """
+        )
+        graph_script1 = gb1.execute(no_header=True)
+
+        # --- Part 2B: Create Graph 2 (Histogram only with scaled axis) ---
+        gb2 = JmpGraphBuilder()
+        variables_str2 = f'X( :"{data_col_name}" ), Overlay( {final_overlay_column} )'
+        histogram_options = ""
+        elements_str2 = f'Histogram( X, Legend( 5 ){histogram_options} )'
+        gb2.set_config(
+            f"""
+            Size( 800, 600 ),
+            Show Control Panel( 0 ),
+            Variables( {variables_str2} ),
+            Elements( {elements_str2} )
+            """
+        )
+        
+        if min_val is not None and max_val is not None:
+            data_range = max_val - min_val
+            if data_range > 0:
+                inc = data_range / UiGlobalVariable.JmpBins
+                axis_min = min_val - inc
+                axis_max = max_val + inc
+                
+                axis_params = f'Format( "Best", 12 ), Min( {axis_min} ), Max( {axis_max} ), Inc( {inc} )'
+                gb2.new_dispatch(f'Dispatch(,"{data_col_name}",ScaleBox,{{{axis_params}}})')
+
+        graph_script2 = gb2.execute(no_header=True)
+
+        # --- Part 3: Combine both graphs vertically and wrap in a window ---
+        combined_graphs_script = JmpBox.new_v_list_box(graph_script1, graph_script2)
+        window_script = JmpBox.new_window(JmpBox.new_outline_box(combined_graphs_script, title=title))
+
+        # --- Part 4: Prepend stack and grouping scripts ---
+        full_jsl_script = stack_script + grouping_script + window_script
+
+        return full_jsl_script

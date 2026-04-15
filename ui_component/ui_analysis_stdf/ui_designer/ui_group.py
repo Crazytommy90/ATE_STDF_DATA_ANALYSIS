@@ -25,7 +25,7 @@ class Ui_Form(object):
         self.splitter.setOrientation(Qt.Vertical)
         self.groupBox = QGroupBox(self.splitter)
         self.groupBox.setObjectName(u"groupBox")
-        self.groupBox.setMaximumSize(QSize(16777215, 300))
+        self.groupBox.setMaximumSize(QSize(16777215, 350))
         self.verticalLayout_2 = QVBoxLayout(self.groupBox)
         self.verticalLayout_2.setObjectName(u"verticalLayout_2")
         self.verticalLayout_2.setContentsMargins(9, 9, 9, 9)

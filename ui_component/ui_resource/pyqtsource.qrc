@@ -54,6 +54,7 @@
     <file>source/images/blue2.svg</file>
     <file>source/images/blue2_wave.svg</file>
     <file>source/images/blue3_wave.svg</file>
+    <file>source/images/BoxPlot.svg</file>
     <file>source/images/brush.ico</file>
     <file>source/images/brush.png</file>
     <file>source/images/bubble_52x60.png</file>
@@ -2209,8 +2210,5 @@
     <file>source/images/zoom_out_normal.svg</file>
     <file>source/images/zoom_out_pressed.svg</file>
     <file>source/images/zoomnext.png</file>
-    <file>source/icons/Icon.ico</file>
-    <file>source/icons/logo.ico</file>
-    <file>source/icons/logo.png</file>
   </qresource>
 </RCC>

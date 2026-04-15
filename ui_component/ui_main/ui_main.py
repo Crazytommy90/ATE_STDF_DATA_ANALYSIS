@@ -362,6 +362,57 @@ class Main_Ui(QMainWindow, Ui_MainWindow):
                 jmp_script, scrip_name="{}/temp_{}.jsl".format(GlobalVariable.JMP_CACHE_PATH, script_name)
             )
 
+
+    @Slot()
+    def on_action_multi_item_distribution_triggered(self):
+        """ 多测项对比分布图 """
+        mdi = self.mdi()  # type:StdfLoadUi
+        if mdi is None:
+            return
+
+        test_id_list = mdi.get_test_id_column()
+        if not test_id_list or len(test_id_list) < 2:
+            return self.message_show("请至少选择两个测试项目进行对比分析。")
+
+        # We need the dataframe to save it to CSV for JMP to read
+        data = self.get_df_use_to_chart_or_csv()
+        if data is None:
+            return
+        jmp_df, temp_calculation = data
+
+        if self.setting.comboBox.currentText() == UiGlobalVariable.PLOT_BACKEND[0]:
+            save_csv_path = "{}/temp_{}.csv".format(GlobalVariable.JMP_CACHE_PATH, 'multi_item_distribution')
+            csv_file_path = self.save_df_to_csv(jmp_df, save_csv_path)
+            if csv_file_path is None:
+                return self.mdi_space_message_emit('CSV数据产生失败!!!@')
+
+            # The keys of temp_calculation are the reliable source for test item names
+            test_item_names = list(temp_calculation.keys())
+
+            # --- Calculate global min/max for axis scaling ---
+            min_val = jmp_df[test_item_names].min().min()
+            max_val = jmp_df[test_item_names].max().max()
+
+            # --- Check for grouping columns ---
+            group_columns = []
+            if 'GROUP' in jmp_df.columns and jmp_df['GROUP'].nunique() > 1:
+                group_columns.append('GROUP')
+            if 'DA_GROUP' in jmp_df.columns and jmp_df['DA_GROUP'].nunique() > 1:
+                group_columns.append('DA_GROUP')
+
+            jmp_script = JmpScript.factory(
+                JmpFile.load_csv_file(csv_file_path),
+                NewJmpFactory.jmp_distribution_multiple_items(
+                    test_items=test_item_names,
+                    title="Multi-Item Comparison Chart",
+                    min_val=min_val,
+                    max_val=max_val,
+                    group_columns=group_columns
+                )
+            )
+            JmpFile.save_with_run_script(
+                jmp_script, scrip_name="{}/temp_{}.jsl".format(GlobalVariable.JMP_CACHE_PATH, "multi_item_distribution")
+            )
     @Slot()
     def on_action_comparing_triggered(self, script_name='fit_plot_data'):
         """ 比较密度图 """
@@ -460,7 +511,7 @@ class Main_Ui(QMainWindow, Ui_MainWindow):
                 JmpBox.new_window(JmpBox.new_outline_box(
                     *JmpBox.new_group_item(
                         *[JmpPlot.line_fit(reference_text, arg, group=True)
-                          for arg in temp_calculation.keys()],
+                          for arg in temp_calculation.keys() if arg != reference_text],
                         col=UiGlobalVariable.JmpPlotColumn
                     )
                 ))

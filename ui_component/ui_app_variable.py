@@ -164,7 +164,7 @@ class UiGlobalVariable:
     JMP_MULTI_SELECT = ["测试数据分布图", "横向分布图", "比较密度图", "散点图", "箱线图(点型)", "箱线图(线型)", "SOFT_BIN MAP",
                         "HARD_BIN MAP", "FIRST_FAIL MAP", "VISUAL_MAP(热图)", "VISUAL_MAP(点型)", "数据Filter"]
 
-    SUMMARY_GROUP = ["LOT_ID", "SBLOT_ID", "WAFER_ID", "FLOW_ID", "TEST_COD", "NODE_NAM", "BLUE_FILM_ID"]
+    SUMMARY_GROUP = ["LOT_ID", "SBLOT_ID", "WAFER_ID", "FLOW_ID", "TEST_COD", "NODE_NAM", "BLUE_FILM_ID", "JOB_NAM"]
     DATA_GROUP = ["SITE_NUM"]
 
     PROCESS_VALUE = ["MEAN", "STD", "CPK"]

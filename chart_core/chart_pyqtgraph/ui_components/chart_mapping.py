@@ -12,9 +12,9 @@ import math
 import random
 import numpy as np
 import pandas as pd
-from PySide2.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-                               QComboBox, QPushButton, QTableWidget, 
-                               QTableWidgetItem, QHeaderView, QSplitter)
+from PySide2.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+                               QComboBox, QPushButton, QTableWidget,
+                               QTableWidgetItem, QHeaderView, QSplitter, QScrollArea)
 from PySide2.QtCore import Slot, Qt
 from PySide2.QtGui import QFont, QColor
 import pyqtgraph as pg
@@ -220,6 +220,107 @@ class BinLegendWidget(QWidget):
                     row_layout.addWidget(spacer)
 
 
+class FocusedMappingWindow(QWidget):
+    """一个简单的窗口，用于显示一个单一的、聚焦的mapping图表，并支持tooltip。"""
+    def __init__(self, data_df, mapping_col, x_min, x_max, y_min, y_max, color_dict, title="Focused View", parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setMinimumSize(600, 600)
+
+        self.chip_data = {}  # 存储tooltip信息
+
+        layout = QVBoxLayout(self)
+        self.graphics_widget = GraphicsLayoutWidget()
+        layout.addWidget(self.graphics_widget)
+
+        self._display_map(data_df, mapping_col, x_min, x_max, y_min, y_max, color_dict)
+
+    def _display_map(self, data_df, mapping_col, x_min, x_max, y_min, y_max, color_dict):
+        plot_item = self.graphics_widget.addPlot()
+        plot_item.invertY(True)
+        plot_item.hideAxis('bottom')
+        plot_item.hideAxis('left')
+
+        scatter_pos = []
+        scatter_brushes = []
+        has_site = 'SITE_NUM' in data_df.columns
+        
+        valid_mask = ~(np.isnan(data_df.X_COORD.values) | np.isnan(data_df.Y_COORD.values) | np.isnan(data_df[mapping_col].values))
+        if np.any(valid_mask):
+            valid_indices = np.where(valid_mask)[0]
+            for idx in valid_indices:
+                x = int(data_df.X_COORD.iloc[idx])
+                y = int(data_df.Y_COORD.iloc[idx])
+                bin_val = int(data_df[mapping_col].iloc[idx])
+                
+                site = "N/A"
+                if has_site and not pd.isna(data_df['SITE_NUM'].iloc[idx]):
+                    site = str(data_df['SITE_NUM'].iloc[idx])
+                
+                self.chip_data[(x, y)] = {'bin': bin_val, 'idx': idx, 'site': site}
+                scatter_pos.append((x, y))
+                
+                if bin_val in color_dict:
+                    r, g, b, a = color_dict[bin_val]
+                    scatter_brushes.append(pg.mkBrush(r, g, b, a))
+                else:
+                    scatter_brushes.append(pg.mkBrush(128, 128, 128, 255))
+
+        chip_spacing = 1.0
+        if scatter_pos:
+            from pyqtgraph import QtGui
+            path = QtGui.QPainterPath()
+            bar_width = chip_spacing * 0.25
+            bar_height = chip_spacing * 0.8
+            path.addRect(-bar_width/2, -bar_height/2, bar_width, bar_height)
+            
+            scatter = pg.ScatterPlotItem(
+                pos=scatter_pos, brush=scatter_brushes, pen=None,
+                size=bar_height, symbol=path, pxMode=False
+            )
+            plot_item.addItem(scatter)
+
+        x_range = x_max - x_min
+        y_range = y_max - y_min
+        x_center = (x_min + x_max) / 2
+        y_center = (y_min + y_max) / 2
+        wafer_diameter = max(x_range, y_range)
+        radius = wafer_diameter / 2 * 1.15
+        
+        plot_item.setXRange(x_center - radius, x_center + radius, padding=0.05)
+        plot_item.setYRange(y_center - radius, y_center + radius, padding=0.05)
+        plot_item.setAspectLocked(False)
+        plot_item.setMouseEnabled(x=True, y=True)
+        plot_item.autoRange()
+
+        # 添加Tooltip功能
+        self.tooltip_label = pg.TextItem(
+            text="", anchor=(0, 1), color=(0, 0, 0),
+            fill=pg.mkBrush(255, 255, 255, 230),
+            border=pg.mkPen(0, 0, 0, width=1)
+        )
+        plot_item.addItem(self.tooltip_label)
+        self.tooltip_label.setVisible(False)
+        plot_item.scene().sigMouseMoved.connect(lambda pos: self._on_mouse_moved(pos, plot_item))
+
+    def _on_mouse_moved(self, pos, plot_item):
+        """鼠标移动事件 - 显示tooltip"""
+        if plot_item.sceneBoundingRect().contains(pos):
+            mouse_point = plot_item.vb.mapSceneToView(pos)
+            x, y = int(round(mouse_point.x())), int(round(mouse_point.y()))
+            
+            if (x, y) in self.chip_data:
+                data = self.chip_data[(x, y)]
+                tooltip_text = f"X: {x}\nY: {y}\nBin: {data['bin']}\nSite: {data['site']}\nIDX: {data['idx']}"
+                self.tooltip_label.setText(tooltip_text)
+                self.tooltip_label.setPos(mouse_point.x(), mouse_point.y())
+                self.tooltip_label.setVisible(True)
+            else:
+                self.tooltip_label.setVisible(False)
+        else:
+            self.tooltip_label.setVisible(False)
+
+
 class MappingChart(UnitChartWindow):
     """
     Mapping图表组件 - 显示芯片在wafer上的分布
@@ -240,6 +341,9 @@ class MappingChart(UnitChartWindow):
         
         # 芯片数据缓存（用于鼠标悬停）
         self.chip_data = {}  # {(x, y): {'bin': int, 'idx': int, 'site': int}}
+        
+        # 存储弹出的聚焦窗口
+        self.focused_windows = []
         
         self.init_ui()
         self.init_coord()
@@ -284,12 +388,20 @@ class MappingChart(UnitChartWindow):
         main_layout.addLayout(control_layout)
         
         # 图表区域
+        # 图表区域 - 使用QScrollArea
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
         self.graphics_widget = GraphicsLayoutWidget()
-        main_layout.addWidget(self.graphics_widget, stretch=4)
+        self.scroll_area.setWidget(self.graphics_widget)
+        main_layout.addWidget(self.scroll_area, stretch=4)
         
-        # 图例区域（在下方）
+        # 图例区域（在下方，使用带滚动条和最大高度限制的QScrollArea）
+        self.legend_scroll_area = QScrollArea()
+        self.legend_scroll_area.setWidgetResizable(True)
+        self.legend_scroll_area.setMaximumHeight(250) # 关键：限制图例区域的最大高度
         self.legend_widget = BinLegendWidget()
-        main_layout.addWidget(self.legend_widget, stretch=1)
+        self.legend_scroll_area.setWidget(self.legend_widget)
+        main_layout.addWidget(self.legend_scroll_area) # stretch=1 已不是必须
 
         # 设置窗口标题
         self.setWindowTitle("Wafer Mapping")
@@ -414,7 +526,14 @@ class MappingChart(UnitChartWindow):
             if mapping_col not in source_df.columns:
                 return
 
-            self.graphics_widget.clear()
+            # 销毁旧的widget并创建一个新的，以确保清除所有旧的信号连接
+            if self.scroll_area.widget():
+                old_widget = self.scroll_area.takeWidget()
+                if old_widget:
+                    old_widget.deleteLater()
+            
+            self.graphics_widget = GraphicsLayoutWidget()
+            self.scroll_area.setWidget(self.graphics_widget)
 
             if 'GROUP' in source_df.columns and len(source_df['GROUP'].unique()) > 1:
                 self._generate_grouped_mapping(source_df, mapping_col)
@@ -429,6 +548,9 @@ class MappingChart(UnitChartWindow):
 
     def _generate_single_mapping(self, data_df, mapping_col):
         """生成单个Mapping图 - 竖条散点快速渲染（动态调整大小）"""
+        # 重置最小尺寸，使其可以自由缩放
+        self.graphics_widget.setMinimumSize(0, 0)
+        
         # 根据选择器过滤数据
         test_type = self.test_type_combo.currentText()
         keep_option = 'last' if test_type == 'Final Test' else 'first'
@@ -544,6 +666,30 @@ class MappingChart(UnitChartWindow):
         else:
             self.tooltip_label.setVisible(False)
 
+    def _open_focused_window(self, data_df, group_name, mapping_col):
+        """创建并显示一个新的聚焦窗口"""
+        win = FocusedMappingWindow(
+            data_df=data_df,
+            mapping_col=mapping_col,
+            x_min=self.x_min,
+            x_max=self.x_max,
+            y_min=self.y_min,
+            y_max=self.y_max,
+            color_dict=self.current_color_dict,
+            title=f"Focused View: Group {group_name}"
+        )
+        self.focused_windows.append(win)
+        win.show()
+
+    def _on_plot_clicked(self, event, plot_item, data_df, group_name, mapping_col):
+        """处理子图双击事件，弹出聚焦窗口"""
+        # 检查点击是否在指定的plot_item的可视框内
+        if not plot_item.getViewBox().sceneBoundingRect().contains(event.scenePos()):
+            return
+
+        if event.double():
+            self._open_focused_window(data_df, group_name, mapping_col)
+
     def _generate_grouped_mapping(self, data_df, mapping_col):
         """生成分组Mapping图 - 竖条散点（动态调整大小）"""
         test_type = self.test_type_combo.currentText()
@@ -555,8 +701,17 @@ class MappingChart(UnitChartWindow):
             map_groups = dict(list(map_groups)[:16])
 
         num_groups = len(map_groups)
-        cols = min(4, num_groups)
+        cols = 2  # 关键：固定为2列
         rows = math.ceil(num_groups / cols)
+
+        # 定义单个图表的最小尺寸，以确保清晰度
+        min_plot_width = 400
+        min_plot_height = 400
+        
+        # 计算并设置GraphicsLayoutWidget的总最小尺寸
+        total_width = cols * min_plot_width
+        total_height = rows * min_plot_height
+        self.graphics_widget.setMinimumSize(total_width, total_height)
 
         # 颜色映射基于所有数据，确保颜色一致性
         bin_values = data_df[mapping_col].dropna().values
@@ -632,6 +787,19 @@ class MappingChart(UnitChartWindow):
             plot_item.setAspectLocked(False)
             plot_item.setMouseEnabled(x=True, y=True)
             plot_item.autoRange()
+        
+            # 为右键菜单添加“聚焦”选项
+            menu = plot_item.getMenu()
+            action = QtWidgets.QAction(f"Focus on Group {group_name}", menu)
+            action.triggered.connect(
+                lambda checked=False, df=filtered_group_df, name=group_name: self._open_focused_window(df, name, mapping_col)
+            )
+            menu.addAction(action)
+
+            # 绑定双击事件
+            plot_item.scene().sigMouseClicked.connect(
+                lambda event, p=plot_item, df=filtered_group_df, name=group_name: self._on_plot_clicked(event, p, df, name, mapping_col)
+            )
         
         # 使用新的图例方法显示所有分组的统计
         self.legend_widget.update_legend(all_group_stats, self.current_color_dict)

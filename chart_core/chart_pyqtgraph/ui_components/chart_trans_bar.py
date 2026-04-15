@@ -14,8 +14,8 @@ import numpy as np
 import pandas as pd
 from PySide2 import QtCore
 from PySide2.QtCore import Qt
-from PySide2.QtGui import QCloseEvent
-from pyqtgraph import InfiniteLine, BarGraphItem
+from PySide2.QtGui import QCloseEvent, QFont
+from pyqtgraph import InfiniteLine, BarGraphItem, TextItem
 
 from app_test.test_utils.wrapper_utils import Time
 from chart_core.chart_pyqtgraph.core.mixin import BasePlot, GraphRangeSignal, PlotWidget, RangeData
@@ -43,6 +43,7 @@ class TransBarChart(UnitChartWindow, BasePlot):
     chart_v_lines: List[InfiniteLine] = None
     limit_lines: List[InfiniteLine] = None  # limit线列表
     bar_items: List[BarGraphItem] = None # 用于存储动态创建的BarGraphItem
+    info_text_item: Any = None # 用于显示测项信息
 
     def __init__(self, li: Li):
         super(TransBarChart, self).__init__()
@@ -72,6 +73,21 @@ class TransBarChart(UnitChartWindow, BasePlot):
         self.chart_v_lines = []
         self.limit_lines = []
         self.bar_items = []
+
+        # 方案：左上角水印设计
+        # anchor=(0,0) 表示左上角对齐。文字将向下、向右生长。
+        self.info_text_item = TextItem(
+            anchor=(0, 0), 
+            fill=(255, 255, 255, 210), # 略高的不透明度，确保清晰
+            color=(0, 0, 0)
+        )
+        # 修复：pyqtgraph 的 TextItem 没有 font() 方法，应使用 setFont 并传入 QFont 对象
+        font = QFont()
+        font.setBold(True)
+        font.setPointSize(10)
+        self.info_text_item.setFont(font)
+        
+        self.vb.addItem(self.info_text_item, ignoreBounds=True)
 
     def init_movable_line(self):
         h_line = InfiniteLine(angle=0, movable=False, label='y={value:0.5f}', labelOpts={'color': (0, 0, 0)})
@@ -152,6 +168,12 @@ class TransBarChart(UnitChartWindow, BasePlot):
         if self.key not in self.li.capability_key_dict:
             return
 
+        # 更新测项文本内容
+        info = self.li.capability_key_dict[self.key]
+        test_num = info.get('TEST_NUM', 'N/A')
+        test_txt = info.get('TEST_TXT', 'Unknown')
+        self.info_text_item.setText(f"Num: {test_num}\nText: {test_txt}")
+
         # 清理旧的图表元素
         self._clear_plot_items()
 
@@ -222,6 +244,10 @@ class TransBarChart(UnitChartWindow, BasePlot):
     
             # 更新图例位置
             self.update_legend_position()
+
+        if not self.line_init:
+            self.init_movable_line()
+            self.line_init = True
 
     def _add_limit_lines(self):
         """
@@ -333,8 +359,19 @@ class TransBarChart(UnitChartWindow, BasePlot):
             # 如果重叠，将图例移动到右下角
             self.legend.anchor((1, 1), (1, 1))
         else:
-            # 否则，保持在右上角
+            # 否则，图例保持在右上角
             self.legend.anchor((1, 0), (1, 0))
+        
+        # 测项信息固定在左上角 (左侧通常是Bar最细或为空的地方)
+        view_range = self.vb.viewRange()
+        x_min, x_max = view_range[0]
+        y_min, y_max = view_range[1]
+        
+        # 增加少量边距 (Padding)，使显示更具美感
+        padding_x = (x_max - x_min) * 0.02
+        padding_y = (y_max - y_min) * 0.02
+        self.info_text_item.setPos(x_min + padding_x, y_max - padding_y)
+
 
     @Time()
     def _clear_plot_items(self):

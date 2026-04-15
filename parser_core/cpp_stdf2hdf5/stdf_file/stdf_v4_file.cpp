@@ -366,7 +366,7 @@ void STDF_FILE::data_write(std::ofstream& csv_dtp, std::ofstream& csv_ptmd, std:
 	LiDPT_Vector.clear();
 	for (std::vector<LiPTMD*>::iterator it = LiPTMD_Vector.begin(); it != LiPTMD_Vector.end(); it++)
 	{
-		// 这个数据太难用hdf5写进去了, 就先用csv写进来后, 再用pandas读取后写到hdf5中
+		// ????????????hdf5???????, ??????csv????????, ????pandas?????????hdf5??
 		LiPTMD* temp_ptmd = *it;
 		csv_ptmd << temp_ptmd->impl->TEST_ID << delimiter;
 		csv_ptmd << temp_ptmd->impl->DATAT_TYPE << delimiter;
@@ -410,8 +410,8 @@ STDF_FILE_ERROR STDF_FILE::parser_to_hdf5(const wchar_t* filename)
 {
 	/*
 		TODO:
-			0. 依然使用安全一点的笨方法, 先扫描一部分数据, 数据安全放在第一位
-			1. DIFF ONLY TEST_NO -> 有一种ATE为了省内存,只有第一次生成的数据是完整的,第二次生成的数据可能只有TEST_NO,也有可能有TEST_NO&TEST_TEXT
+			0. ?????????????????, ??????????????, ??????????????
+			1. DIFF ONLY TEST_NO -> ?????ATE???????,?????????????????????????,????????????????????TEST_NO,?????????TEST_NO&TEST_TEXT
 			2. 
 	*/
 	std::string temp = std::string(getenv("TEMP"));
@@ -426,7 +426,7 @@ STDF_FILE_ERROR STDF_FILE::parser_to_hdf5(const wchar_t* filename)
 	if (!csv_ptmd)
 		return WRITE_ERROR;
 
-	// 按需要
+	// ?????
 	std::ofstream csv_bin(temp + "\\StdfTempHardSoftBin.csv", std::ios::binary);
 	if (!csv_ptmd)
 		return WRITE_ERROR;
@@ -454,62 +454,23 @@ STDF_FILE_ERROR STDF_FILE::parser_to_hdf5(const wchar_t* filename)
 	delete far_record;
 	far_record = nullptr;
 
-	// ============================================= 检测TEST_NO是否唯一
+	// ============================================= ???TEST_NO??????
 	/*
-	TODO: test_no_only 来判断TESTNO的设置是不是唯一的
-		  如果在一个周期内，有重复的TESTNO, 就设置为True
-		  如果 test_no_only == true > 则使用TESTNO作为键
-		  否则，使用 TESTNO:TESTTEXT作为键
-		  如果有重复的TESTNO, 而测试机第二次测试的时候不写入TESTTEXT, 那就是SB测试机
+	TODO: test_no_only ??????TESTNO????????????????
+		  ??????????????????????TESTNO, ???????True
+		  ??? test_no_only == true > ?????TESTNO?????
+		  ??????? TESTNO:TESTTEXT?????
+		  ??????????TESTNO, ????????????????????????TESTTEXT, ?????SB?????
 	*/
-	bool test_no_only = true;  // TEST_NO是唯一的
+	bool test_no_only = false;  // Use TEST_NUM+TEST_TEXT as unique key
 	bool have_pmr = false;
-	int scan_test_no_only_time = 500;
-	int scan_test_no_only_times = 0;
-	std::map <std::string, int> test_no_map;
-	bool is_new_record = true;
-	while (!in.eof())
-	{
-		type = header.read(in);
-		if (type == PTR_TYPE)
-		{
-			scan_test_no_only_times += 1;
-			if (scan_test_no_only_times > scan_test_no_only_time) break;
-			if (is_new_record)
-			{
-				test_no_map.erase(test_no_map.begin(), test_no_map.end());
-				is_new_record = false;
-			}
-			StdfRecord* record = header.create_record(type);
-			record->parse(header);
-			if (record->type() != PTR_TYPE) continue;
-			StdfPTR* temp_ptr = static_cast<StdfPTR*>(record);
-			int pir_vector_key = temp_ptr->get_head_number() * 1E6 + temp_ptr->get_site_number();
-			std::string key = std::to_string(temp_ptr->get_test_number()) + ':' + std::to_string(pir_vector_key);
-			if (test_no_map.count(key))
-			{
-				test_no_only = false;
-			}
-			else
-			{
-				test_no_map.insert(std::pair<std::string, int>(key, Pass));
-			}
-
-			delete temp_ptr;
-			temp_ptr = nullptr;
-
-			if (test_no_only == false) break;
-		}
-		if (type == PRR_TYPE) is_new_record = true;
-
-	}
 	in.close();
-	std::cout << "TESTNO是唯一?:" << test_no_only << std::endl;
+	std::cout << "Using unique key: TEST_NUM+TEST_TEXT" << std::endl;
 
 	/*
-	 * 提早准备H5文件, PRR 50个TD转换OK后就写入 -> 避免写入次数太多了
-	 * DTP文件最后导入
-	 * PTMD每一个TD转换OK后写入
+	 * ???????H5???, PRR 50??TD???OK??????? -> ????????????????
+	 * DTP????????
+	 * PTMD????TD???OK??????
 	 */
 	// ===================================================== H5 Ready $ WAIT UPDATE
 
@@ -517,17 +478,19 @@ STDF_FILE_ERROR STDF_FILE::parser_to_hdf5(const wchar_t* filename)
 	// ===================================================== Read STDF
 	StdfMRR* mrr_record = nullptr;
 
-	std::map <std::string, int> TestKey_TestId;  // 用来区分不同的测试类型
+	std::map <std::string, int> TestKey_TestId;  // ???????????????????
 	/*
 	TestKey = str(TEST_NO) if test_no_only else str(TEST_NO) + str(TEST_TEXT)
 	*/
-	is_new_record = true;
+	bool is_new_record = true;
 	unsigned int part_id_int = 0;
-	std::map <int, int> key_part_id; // 缓存单个TD中的每个Dut的PartId
+	std::map <int, int> key_part_id; // ???????TD???????Dut??PartId
 	std::map <U2, Cn> pin_index_name;
-	std::map <std::string, kxU2> only_key_pin_index; // 用于缓存MPR的pin_index
+	std::map <std::string, kxU2> only_key_pin_index; // ???????MPR??pin_index
 
 	std::ifstream in2(filename, std::ios::in | std::ios::binary);
+	if (!in2)
+		return READ_ERROR;
 	while (!in2.eof())
 	{
 		type = header.read(in2);
@@ -539,7 +502,7 @@ STDF_FILE_ERROR STDF_FILE::parser_to_hdf5(const wchar_t* filename)
 			record->parse(header);
 			StdfPMR* temp_pmr = static_cast<StdfPMR*>(record);
 			pin_index_name.insert(std::pair<U2, Cn>(temp_pmr->impl->PMR_INDX, temp_pmr->impl->CHAN_NAM));
-			delete record; // 这个数据用不上, 早点删除
+			delete record; // ?????????????, ??????
 			record = nullptr;
 			if (is_new_record) continue;
 		}
@@ -550,14 +513,14 @@ STDF_FILE_ERROR STDF_FILE::parser_to_hdf5(const wchar_t* filename)
 			StdfRecord* record = header.create_record(type);
 			record->parse(header);
 			// if (record->type() != PIR_TYPE) continue;
-			if (!is_new_record) key_part_id.erase(key_part_id.begin(), key_part_id.end());  // key_part_id 在每个TD处理完成后清空一下
+			if (!is_new_record) key_part_id.erase(key_part_id.begin(), key_part_id.end());  // key_part_id ?????TD??????????????
 			StdfPIR* temp_pir = static_cast<StdfPIR*>(record);
 			int dut_key = temp_pir->get_head_number() << 8 | temp_pir->get_site_number();
 			key_part_id.insert(std::pair<int, int>(dut_key, part_id_int));
-			delete record; // 这个数据用不上, 早点删除
+			delete record; // ?????????????, ??????
 			record = nullptr;
 			if (is_new_record) continue;
-			// ======================================= H5数据写入 & 先用CSV来做测试
+			// ======================================= H5???????? & ????CSV????????
 			data_write(csv_dtp, csv_ptmd, csv_prr);
 			// ======================================= 
 			
@@ -566,9 +529,6 @@ STDF_FILE_ERROR STDF_FILE::parser_to_hdf5(const wchar_t* filename)
 		}
 		if (type == MPR_TYPE)
 		{
-			/*
-			* MPR也转为PTR类似的数据，这样解析起来比较简单和方便，也不那么绕
-			*/
 			is_new_record = false;
 			if (!have_pmr) continue;
 			StdfRecord* record = header.create_record(type);
@@ -581,27 +541,26 @@ STDF_FILE_ERROR STDF_FILE::parser_to_hdf5(const wchar_t* filename)
 				record = nullptr;
 				continue;
 			}
-			std::string only_key = test_no_only ? std::to_string(temp_mpr->get_test_number()) : std::to_string(temp_mpr->get_test_number()) + ":" + temp_mpr->get_test_text();
+			std::string base_key = std::to_string(temp_mpr->get_test_number()) + ":" + temp_mpr->get_test_text();
 			unsigned int part_id = key_part_id.at(dut_key);
-			// only_key + "@" + pin_name
 			kxU2 pin_index_list;
-			if (!only_key_pin_index.count(only_key))
+			if (!only_key_pin_index.count(base_key))
 			{
-				only_key_pin_index.insert(std::pair<std::string, kxU2>(only_key, temp_mpr->impl->RTN_INDX));
+				only_key_pin_index.insert(std::pair<std::string, kxU2>(base_key, temp_mpr->impl->RTN_INDX));
 				pin_index_list = temp_mpr->impl->RTN_INDX;
 			}
 			else
 			{
-				pin_index_list = only_key_pin_index.at(only_key);
+				pin_index_list = only_key_pin_index.at(base_key);
 			}
 			int test_id;
 			U2 pin_count = temp_mpr->get_pin_count();
 			for (U2 i = 0; i < pin_count; i++)
 			{
-				// U2 pin_index = temp_mpr->get_pin_index(i);
 				U2 pin_index = pin_index_list[i];
+				if (!pin_index_name.count(pin_index)) continue;
 				Cn pin_name = pin_index_name.at(pin_index);
-				only_key = only_key + "@" + pin_name.c_str();
+				std::string only_key = base_key + "@" + pin_name.c_str();
 				if (!TestKey_TestId.count(only_key))
 				{
 					test_id = TestKey_TestId.size();
@@ -662,7 +621,7 @@ STDF_FILE_ERROR STDF_FILE::parser_to_hdf5(const wchar_t* filename)
 				record = nullptr;
 				continue;
 			}
-			std::string only_key = test_no_only? std::to_string(temp_ptr->get_test_number()): std::to_string(temp_ptr->get_test_number()) + ":" + temp_ptr->get_test_text();
+			std::string only_key = std::to_string(temp_ptr->get_test_number()) + ":" + temp_ptr->get_test_text();
 			unsigned int part_id = key_part_id.at(dut_key);
 			int test_id;
 			if (!TestKey_TestId.count(only_key))
@@ -710,19 +669,19 @@ STDF_FILE_ERROR STDF_FILE::parser_to_hdf5(const wchar_t* filename)
 		}
 		if (type == FTR_TYPE)
 		{
-			// @20200820填FTR的坑
-			is_new_record = false;  // TODO: 注意, 这个是必要的
+			// @20200820 FTR澶勭悊
+			// 淇: 绉婚櫎test_pfflag_invalid()妫�鏌ワ紝澶勭悊鎵�鏈塅TR璁板綍
+			is_new_record = false;
 			StdfRecord* record = header.create_record(type);
 			record->parse(header);
-			// if (record->type() != FTR_TYPE) continue;
 			StdfFTR* temp_ftr = static_cast<StdfFTR*>(record);
-			if (!temp_ftr->test_pfflag_invalid())
-			{
-				// 不需要的FTR数据
-				delete record;
-				record = nullptr;
-				continue;
-			}
+			// 娉ㄩ噴鎺夐敊璇殑妫�鏌ラ�昏緫
+			// if (!temp_ftr->test_pfflag_invalid())
+			// {
+			// 	delete record;
+			// 	record = nullptr;
+			// 	continue;
+			// }
 			int dut_key = temp_ftr->get_head_number() << 8 | temp_ftr->get_site_number();
 			if (!key_part_id.count(dut_key))
 			{
@@ -730,7 +689,7 @@ STDF_FILE_ERROR STDF_FILE::parser_to_hdf5(const wchar_t* filename)
 				record = nullptr;
 				continue;
 			}
-			std::string only_key = test_no_only ? std::to_string(temp_ftr->get_test_number()) : std::to_string(temp_ftr->get_test_number()) + ":" + temp_ftr->get_test_text();
+			std::string only_key = std::to_string(temp_ftr->get_test_number()) + ":" + temp_ftr->get_test_text();
 			unsigned int part_id = key_part_id.at(dut_key);
 			int test_id;
 			if (!TestKey_TestId.count(only_key))
@@ -739,8 +698,8 @@ STDF_FILE_ERROR STDF_FILE::parser_to_hdf5(const wchar_t* filename)
 				TestKey_TestId.insert(std::pair<std::string, int>(only_key, test_id));
 				LiPTMD* temp_ptmd = new LiPTMD();
 				temp_ptmd->impl->OPT_FLAG[1] = 1;
-				temp_ptmd->set_high_limit(1.1);
-				temp_ptmd->set_low_limit(0.1);
+				temp_ptmd->set_high_limit(1.1f);
+				temp_ptmd->set_low_limit(0.1f);
 				temp_ptmd->equal_highlimit_pass(true);
 				temp_ptmd->equal_lowlimit_pass(false);
 				temp_ptmd->set_result_exponent(0);
@@ -802,7 +761,7 @@ STDF_FILE_ERROR STDF_FILE::parser_to_hdf5(const wchar_t* filename)
 		}
 		if (type == MRR_TYPE)
 		{
-			/* 退出解析 */
+			/* ??????? */
 			StdfRecord* record = header.create_record(type);
 			record->parse(header);
 			mrr_record = static_cast<StdfMRR*>(record);
@@ -814,7 +773,7 @@ STDF_FILE_ERROR STDF_FILE::parser_to_hdf5(const wchar_t* filename)
 	}
 	in2.close();
 
-	// ===================================== 处理未写入到H5的数据
+	// ===================================== ???????H5??????
 	data_write(csv_dtp, csv_ptmd, csv_prr);
 	csv_dtp.close(); csv_ptmd.close(); csv_prr.close();
 	delete mrr_record;

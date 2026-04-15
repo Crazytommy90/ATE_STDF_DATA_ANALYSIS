@@ -31,6 +31,7 @@
    <addaction name="separator"/>
    <addaction name="action_distribution"/>
    <addaction name="action_distribution_trans"/>
+   <addaction name="action_multi_item_distribution"/>
    <addaction name="action_comparing"/>
    <addaction name="action_linear"/>
    <addaction name="action_scatter"/>
@@ -332,6 +333,18 @@
    </property>
    <property name="toolTip">
     <string>打开TEMP文件夹 (C:\1_STDF)</string>
+   </property>
+  </action>
+  <action name="action_multi_item_distribution">
+   <property name="icon">
+    <iconset resource="../../ui_resource/pyqtsource.qrc">
+     <normaloff>:/pyqt/source/images/lc_distributeselection.png</normaloff>:/pyqt/source/images/lc_distributeselection.png</iconset>
+   </property>
+   <property name="text">
+    <string>multi_item_distribution</string>
+   </property>
+   <property name="toolTip">
+    <string>多测项对比分布图</string>
    </property>
   </action>
  </widget>

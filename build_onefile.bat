@@ -89,7 +89,7 @@ echo ========================================
 echo Single File Build SUCCESS!
 echo ========================================
 echo.
-echo Output file: dist\STDF_Analysis_V1.exe
+echo Output file: dist\STDF_Analysis_V3_0.exe
 echo File size: Approx 200-300MB
 echo.
 echo Advantages:
@@ -106,7 +106,7 @@ echo - All logs recorded to logger.log file
 echo - Fixed KeyError and AttributeError during data loading
 echo.
 echo Usage:
-echo 1. Run dist\STDF_Analysis_V1.exe directly
+echo 1. Run dist\STDF_Analysis_V3_0.exe directly
 echo 2. First run will auto-create C:\1_STDF cache directory
 echo 3. Click "Open TEMP folder" button in left toolbar to test
 echo 4. All operation logs saved in logger.log

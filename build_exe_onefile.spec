@@ -20,6 +20,7 @@ a = Analysis(
     datas=[
         ('icon_swf.ico', '.'),
         ('ui_component/ui_resource/source', 'ui_component/ui_resource/source'),
+        ('colors', 'colors'),
     ] + tables_datas,
     hiddenimports=[
         'PySide2.QtCore',
@@ -40,12 +41,15 @@ a = Analysis(
         'numexpr',
         'prettytable',
         'xlsxwriter',
+        'openpyxl',
         'loguru',
         'colorama',
         'var_language',
         'subprocess',
         'multiprocessing',
         'multiprocessing.Process',
+        'win32api',
+        'winreg',
     ],
     hookspath=['.'],
     hooksconfig={},
@@ -72,7 +76,7 @@ exe = EXE(
     a.zipfiles,      # 包含所有zip文件
     a.datas,         # 包含所有数据文件
     [],
-    name='STDF_Analysis_V1',
+    name='STDF_Analysis_V3_0',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
